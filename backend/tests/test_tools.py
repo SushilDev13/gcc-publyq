@@ -52,3 +52,10 @@ def test_spoken_id_forms_normalise():
 def test_escalation_chain_uses_ladder_above_zone():
     assert [p['post_id'] for p in T.get_official('AE-D173')['chain']] == ['AEE3-Z13', 'EE1-Z13']
     assert [p['post_id'] for p in T.get_official('SI-D173')['chain']] == ['SO3-Z13', 'ZHO-Z13']
+
+
+def test_safety_override_makes_flagged_complaint_p1():
+    c = T.get_complaint('2026-185OET')  # safety-flagged drain repair; SOP tier is P3
+    assert c['sop']['priority_tier'] == 'P3'
+    assert c['priority']['tier'] == 'P1' and c['priority']['repair_tier'] == 'P3'
+    assert c['safety_reasons'] == 'open manhole, children nearby'

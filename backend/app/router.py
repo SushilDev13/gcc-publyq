@@ -74,9 +74,8 @@ def _list_reply(r: dict, intent: str, lead: str) -> Reply:
     if not items:
         return Reply(say=f'{lead}: none found.', intent=intent, cards=[{'type': 'complaint_list', **r}],
                      tools=['search_complaints'])
-    top = '; '.join(i['say'] for i in items[:3])
-    more = f" and {r['total'] - 3} more on screen" if r['total'] > 3 else ''
-    return Reply(say=f"{lead}: {r['total']}. Top: {top}{more}. Say 'open the first one' for details.",
+    more = f" {r['total'] - 1} more on screen." if r['total'] > 1 else ''
+    return Reply(say=f"{lead}: {r['total']}. First: {items[0]['say']}.{more} Say 'open the first one' for details.",
                  intent=intent, cards=[{'type': 'complaint_list', **r}], ids=[i['id'] for i in items],
                  tools=['search_complaints'])
 
@@ -128,8 +127,8 @@ def route(text: str, ctx: dict, session_id: str | None) -> Reply | None:
                      tools=['complaint_report'])
     if ref and _has(t, 'sop', 'how (do|to|should)', 'procedure', 'what should', 'fix it', 'steps'):
         c = T.get_complaint(ref)
-        s = c['sop']
-        say = (f"{s['sop_type']}, {s['priority_tier']}: {s['tier_meaning']}. First check: {s['diagnose'][0]} "
+        s, pr = c['sop'], c['priority']
+        say = (f"{s['sop_type']}, priority {pr['tier']}: {pr['say']}. First check: {s['diagnose'][0]} "
                f"Fix: {s['fix']}") if s else 'No SOP mapped for this type.'
         return Reply(say=say, intent='sop', cards=[{'type': 'sop', 'complaint_id': ref, **(s or {})}], focus=ref,
                      tools=['get_complaint'])
@@ -144,13 +143,14 @@ def route(text: str, ctx: dict, session_id: str | None) -> Reply | None:
     if ref and (T.normalize_id(t) or _has(t, 'open', 'show', 'details', 'tell me about', 'what about', 'take',
                                           'photos?', 'pictures?', 'images?')):
         c = T.get_complaint(ref)
-        r = c['responsible']
-        say = (f"{c['say']}. {c['whats_failed'] or c['complaint_type']}."
+        r, pr = c['responsible'], c['priority']
+        n_ev = len(c['events'])
+        say = (f"{c['say']}."
                + (f" Safety risk: {c['safety_reasons']}." if c['is_safety_risk'] and c['safety_reasons'] else '')
-               + f" {len(c['events'])} officer actions, {len(c['media'])} photos or videos."
-               + (f" Held by {r['holder']['post']}." if r['holder'] else '')
-               + (f" SOP says {c['sop']['priority_tier']}: {c['sop']['tier_meaning']}." if c['sop'] else '')
-               + (" You can say escalate, follow up, or report." if c['status_group'] == 'open' else ''))
+               + (f" Held by {r['holder']['post']}," if r['holder'] else '')
+               + (f" {n_ev} officer action{'s' if n_ev != 1 else ''} so far." if n_ev else ' no officer action yet.')
+               + (f" Priority {pr['tier']}: {pr['say']}." if pr and c['status_group'] == 'open' else '')
+               + (" Say escalate, follow up, or report." if c['status_group'] == 'open' else ''))
         return Reply(say=say, intent='dossier', cards=[{'type': 'complaint', **c}], focus=c['id'],
                      tools=['get_complaint'])
 

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>GCC Publyq</title>
+  <meta name="description" content="Voice-first workplace assistant for GCC Ward 173 staff." />
+  <meta name="theme-color" content="#070d10" />
+  <link rel="icon" href="assets/favicon-32.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/app.css" />
+</head>
+<body>
+  <a class="skip-link" href="#composer">Skip to input</a>
+  <header class="top">
+    <div class="brand">
+      <img src="assets/logo.png" alt="" width="28" height="28" />
+      <div>
+        <strong>GCC Publyq</strong>
+        <span class="sub">Ward 173 · Adyar</span>
+      </div>
+    </div>
+    <div class="status" id="status" aria-live="polite">connecting…</div>
+  </header>
+
+  <main id="main">
+    <section class="feed" id="feed" aria-live="polite" aria-label="Conversation">
+      <div class="hello" id="hello">
+        <h1>What needs doing in Ward 173?</h1>
+        <p>Tap the mic and speak, or type. Every answer comes from GCC records; every action waits for your “confirm”.</p>
+        <div class="chips" id="chips">
+          <button data-say="What's urgent in my ward?">What's urgent?</button>
+          <button data-say="Ward brief">Ward brief</button>
+          <button data-say="Open complaints in Indira Nagar">Indira Nagar</button>
+          <button data-say="What follow-ups do I have?">Follow-ups</button>
+          <button data-say="A resident called about an open manhole near the school in Gandhi Nagar">Triage a call</button>
+          <button data-say="Who is the sanitary inspector?">Who's in charge?</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="dock">
+    <form class="composer" id="composer" autocomplete="off">
+      <button type="button" class="mic" id="mic" aria-label="Hold or tap to speak" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+      </button>
+      <input id="text" name="text" placeholder="Say or type: escalate 2026-185OET" aria-label="Message" maxlength="1000" />
+      <button type="submit" class="send" aria-label="Send">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+    </form>
+    <div class="hint" id="hint">Voice: <span id="voiceMode">browser speech</span> · <label><input type="checkbox" id="speak" checked /> speak replies</label></div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

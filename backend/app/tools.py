@@ -56,6 +56,41 @@ def brief(c: dict) -> dict:
     return out
 
 
+SAFETY_WORDS = {
+    'ctx_traffic': 'busy traffic', 'hazard_open_manhole': 'open manhole', 'ctx_danger': 'described as dangerous',
+    'ctx_children': 'children nearby', 'hazard_live_wire': 'live wire', 'ctx_possible_accident': 'accident risk',
+    'ctx_dark': 'dark stretch', 'ctx_elderly': 'elderly people', 'ctx_low_hanging': 'low-hanging',
+    'harm_accident': 'accident reported', 'ctx_possible_injury': 'injury risk', 'hazard_cables': 'loose cables',
+    'hazard_sharp': 'sharp edges', 'ctx_pedestrian_road': 'pedestrians forced onto road',
+    'hazard_collapse': 'collapse risk', 'ctx_crime': 'crime risk', 'ctx_possible_death': 'risk to life',
+    'hazard_animal': 'animal hazard', 'ctx_vulnerable': 'vulnerable people',
+}
+
+
+def safety_text(codes: str | None) -> str | None:
+    """'type_defect:x;hazard_open_manhole;ctx_children' -> 'open manhole, children nearby'.
+    type_* codes only restate the complaint type, so they're dropped."""
+    out = []
+    for c in (codes or '').split(';'):
+        c = c.strip()
+        if not c or c.startswith('type_'):
+            continue
+        w = SAFETY_WORDS.get(c) or re.sub(r'^(ctx|hazard|harm)_', '', c).replace('_', ' ')
+        if w not in out:
+            out.append(w)
+    return ', '.join(out) or None
+
+
+def effective_priority(sop: dict | None, is_safety_risk: bool) -> dict | None:
+    """Apply the SOP's own safety_override: safety-flagged -> P1 make-safe step, repair keeps its tier."""
+    if not sop:
+        return None
+    if is_safety_risk and sop['priority_tier'] != 'P1' and sop.get('safety_override'):
+        return {'tier': 'P1', 'say': f"make safe today, then {sop['tier_meaning'][0].lower()}{sop['tier_meaning'][1:]}",
+                'repair_tier': sop['priority_tier'], 'rule': sop['safety_override']}
+    return {'tier': sop['priority_tier'], 'say': sop['tier_meaning'], 'repair_tier': sop['priority_tier'], 'rule': None}
+
+
 def normalize_id(text: str) -> str | None:
     """Accepts '2026-110ONF', '2026 110 ONF', '110ONF', '110 o n f' (spoken)."""
     t = re.sub(r'[\s\-]', '', text.upper())
@@ -179,7 +214,8 @@ def get_complaint(complaint_id: str) -> dict:
     out = brief(c)
     out.update({
         'details': c['details_en'], 'complainant': c['complainant'], 'whats_failed': c['whats_failed'],
-        'whats_to_resolve': c['whats_to_resolve'], 'safety_reasons': c['safety_reasons'],
+        'whats_to_resolve': c['whats_to_resolve'], 'safety_reasons': safety_text(c['safety_reasons']),
+        'priority': effective_priority(sop, c['is_safety_risk']),
         'department': c['department'], 'sla_days': float(c['sla_days']) if c['sla_days'] is not None else None,
         'tweet_url': c['tweet_url'], 'source_url': c['source_url'],
         'data_as_of': c['last_fetched_at'].isoformat() if c['last_fetched_at'] else None,
@@ -379,7 +415,8 @@ def propose_action(kind: str, complaint_id: str, target_post_id: str | None = No
         note = (f"{c['id']} ({c['complaint_type']}, {_place(c)}) open {c['days_open']} days"
                 + (', flagged safety risk' if c['is_safety_risk'] else '')
                 + (f"; held by {r['holder']['post']}" if r['holder'] else '')
-                + (f". SOP: {c['sop']['priority_tier']} - {c['sop']['tier_meaning']}" if c['sop'] else '') + '.')
+                + (f"; {c['safety_reasons']}" if c['safety_reasons'] else '')
+                + (f". SOP: {c['priority']['tier']} - {c['priority']['say']}" if c['priority'] else '') + '.')
     due_at = now() + timedelta(days=float(due_in_days)) if due_in_days is not None else None
     a = db.execute("""INSERT INTO actions (complaint_id, kind, target_post_id, note, due_at, session_id)
                       VALUES (%s,%s,%s,%s,%s,%s) RETURNING *""",
@@ -459,7 +496,9 @@ def complaint_report(complaint_id: str) -> dict:
           f"- SOP owner: {r['owner']['post'] if r['owner'] else 'n/a'}",
           f"- Escalation: {r['escalate_to']['post'] if r['escalate_to'] else 'n/a'}", '']
     if s:
-        L += [f"## SOP — {s['sop_type']} ({s['priority_tier']}: {s['tier_meaning']})"]
+        pr = c['priority']
+        L += [f"## SOP — {s['sop_type']} ({pr['tier']}: {pr['say']})"] + (
+            [f"_{pr['rule']}_"] if pr['rule'] else [])
         L += [f"{i}. {d}" for i, d in enumerate(s['diagnose'], 1)]
         L += [f"- Carry: {', '.join(s['carry'])}" if s['carry'] else '', f"- Fix: {s['fix'] or '—'}",
               f"- Not GCC's if: {s['not_ours_if'] or '—'}", f"_Source: {s['sop_source']}_", '']

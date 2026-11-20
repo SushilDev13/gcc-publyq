@@ -213,3 +213,12 @@ async def chat_completions(request: Request, session: str | None = None):
             out += data['text']
     return {'id': cid, 'object': 'chat.completion', 'created': int(time.time()), 'model': model,
             'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': out}, 'finish_reason': 'stop'}]}
+
+
+# ── dev: serve the web client from the same origin (Vercel serves web/ statically) ──
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+from .config import ROOT  # noqa: E402
+
+if (ROOT / 'web').is_dir():
+    app.mount('/', StaticFiles(directory=ROOT / 'web', html=True), name='web')
