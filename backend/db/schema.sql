@@ -203,3 +203,23 @@ CREATE TABLE IF NOT EXISTS role_ladder (
 
 -- session context (focus complaint, last listed IDs) read back each turn
 ALTER TABLE turns ADD COLUMN IF NOT EXISTS ctx jsonb;
+
+-- SOP owner post for the complaint's ward (derived at seed; NULL when the
+-- records have no post for that role in the ward/zone, e.g. Revenue)
+ALTER TABLE complaints ADD COLUMN IF NOT EXISTS owner_post_id text;
+CREATE INDEX IF NOT EXISTS complaints_owner_idx ON complaints (owner_post_id);
+CREATE INDEX IF NOT EXISTS complaints_holder_idx ON complaints (holder_post_id);
+
+-- chat history: one row per conversation; turns.session_id = conversations.id
+CREATE TABLE IF NOT EXISTS conversations (
+  id          text PRIMARY KEY,
+  device_id   text NOT NULL,
+  role_id     text,
+  title       text,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  deleted_at  timestamptz
+);
+CREATE INDEX IF NOT EXISTS conversations_device_idx ON conversations (device_id, updated_at DESC);
+ALTER TABLE turns ADD COLUMN IF NOT EXISTS cards jsonb;
+ALTER TABLE turns ADD COLUMN IF NOT EXISTS role_id text;

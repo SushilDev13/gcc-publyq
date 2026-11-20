@@ -16,6 +16,7 @@ import time
 from collections.abc import AsyncIterator
 
 from . import db, llm
+from . import roles as R
 from . import tools as T
 from .config import settings
 from .router import Reply, route
@@ -23,6 +24,8 @@ from .router import Reply, route
 log = logging.getLogger('gcc.agent')
 
 SYSTEM = """You are GCC Publyq, a voice assistant for Greater Chennai Corporation staff working Ward 173 (Adyar zone 13).
+You are speaking with: {role_post} ({role_kind} role). Their scope: {role_scope}. Answer from their point of view:
+their queue, their escalation chain, their recurring problems. search/my_queue/patterns are already scoped to them.
 Facts come ONLY from tool results. Never invent complaint IDs, numbers, names or dates. If tools return nothing, say so.
 Officials are posts (e.g. "Assistant Engineer, Ward 173"), not named people; don't invent names.
 You can look things up, classify new reports (triage), and PROPOSE actions (escalate, assign, note, follow_up).
@@ -45,6 +48,10 @@ TOOLS: dict[str, tuple] = {
     'get_complaint': (T.get_complaint, {
         'description': 'Full dossier: details, officer actions, photos, SOP, holder/owner/escalation posts.',
         'properties': {'complaint_id': {'type': 'string'}}, 'required': ['complaint_id']}),
+    'my_queue': (T.my_queue, {'description': "The user's own open complaints, most urgent first (role-scoped).",
+                              'properties': {}}),
+    'patterns': (T.patterns, {'description': 'Recurring spots, top issues, rising issues, comes-back-after-fix '
+                                             "rate in the user's scope.", 'properties': {}}),
     'ward_summary': (T.ward_summary, {'description': 'Counts for the ward: open, overdue, safety, by issue/holder.',
                                       'properties': {}}),
     'find_officials': (T.find_officials, {'description': 'GCC posts for the ward and zone, optionally by role.',
@@ -74,7 +81,7 @@ TOOL_SCHEMAS = [{'type': 'function', 'function': {'name': n, 'description': s['d
                                                   'parameters': {'type': 'object', 'properties': s['properties'],
                                                                  'required': s.get('required', [])}}}
                 for n, (_, s) in TOOLS.items()]
-CARD_TYPE = {'search_complaints': 'complaint_list', 'get_complaint': 'complaint', 'find_officials': 'officials',
+CARD_TYPE = {'my_queue': 'queue', 'patterns': 'patterns', 'search_complaints': 'complaint_list', 'get_complaint': 'complaint', 'find_officials': 'officials',
              'get_official': 'official', 'get_sop': 'sop', 'triage': 'triage', 'propose_action': 'action',
              'list_actions': 'actions', 'complaint_report': 'report', 'ward_brief': 'report',
              'ward_summary': 'summary'}
@@ -92,11 +99,16 @@ def load_ctx(session_id: str) -> tuple[dict, list[dict]]:
 
 
 def save_turn(session_id: str, channel: str, text: str, route_: str, intent: str | None, tools: list[str],
-              reply: str, ctx: dict, ms: int) -> None:
+              reply: str, ctx: dict, ms: int, cards: list[dict] | None = None, device_id: str | None = None) -> None:
     try:
-        db.execute('INSERT INTO turns (session_id, channel, text, route, intent, tools, reply, ctx, latency_ms) '
-                   'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                   (session_id, channel, text, route_, intent, json.dumps(tools), reply, json.dumps(ctx), ms))
+        role = ctx.get('role')
+        db.execute("""INSERT INTO conversations (id, device_id, role_id, title) VALUES (%s, %s, %s, %s)
+                      ON CONFLICT (id) DO UPDATE SET updated_at = now(), role_id = EXCLUDED.role_id""",
+                   (session_id, device_id or channel, role, text[:80]))
+        db.execute('INSERT INTO turns (session_id, channel, text, route, intent, tools, reply, ctx, latency_ms, '
+                   'cards, role_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                   (session_id, channel, text, route_, intent, json.dumps(tools), reply, json.dumps(ctx), ms,
+                    json.dumps(cards or [], default=str), role))
     except Exception:  # audit log must never break a turn
         log.exception('failed to save turn')
 
@@ -130,9 +142,12 @@ def _compact(result: dict) -> str:
 
 
 # ── the turn ──────────────────────────────────────────────────────────────
-async def run_turn(text: str, session_id: str, channel: str = 'web') -> AsyncIterator[tuple[str, dict]]:
+async def run_turn(text: str, session_id: str, channel: str = 'web', role_id: str | None = None,
+                   device_id: str | None = None) -> AsyncIterator[tuple[str, dict]]:
     t0 = time.perf_counter()
     ctx, history = await asyncio.to_thread(load_ctx, session_id)
+    if role_id in R.BY_ID:  # explicit choice in the UI wins over the remembered one
+        ctx['role'] = role_id
 
     # 1. fast path
     try:
@@ -145,10 +160,13 @@ async def run_turn(text: str, session_id: str, channel: str = 'web') -> AsyncIte
             yield 'card', c
         yield 'delta', {'text': reply.say}
         new_ctx = _next_ctx(ctx, reply.focus, reply.ids, reply.cards)
+        if reply.role:
+            new_ctx['role'] = reply.role
         ms = int((time.perf_counter() - t0) * 1000)
         await asyncio.to_thread(save_turn, session_id, channel, text, 'fast', reply.intent, reply.tools, reply.say,
-                                new_ctx, ms)
-        yield 'done', {'route': 'fast', 'intent': reply.intent, 'latency_ms': ms, 'focus': new_ctx.get('focus')}
+                                new_ctx, ms, reply.cards, device_id)
+        yield 'done', {'route': 'fast', 'intent': reply.intent, 'latency_ms': ms, 'focus': new_ctx.get('focus'),
+                       'role': new_ctx.get('role')}
         return
 
     # 2. LLM tool loop
@@ -156,12 +174,18 @@ async def run_turn(text: str, session_id: str, channel: str = 'web') -> AsyncIte
         yield 'route', {'route': 'fallback', 'intent': 'no_llm'}
         yield 'delta', {'text': HELP}
         ms = int((time.perf_counter() - t0) * 1000)
-        await asyncio.to_thread(save_turn, session_id, channel, text, 'fallback', 'no_llm', [], HELP, ctx, ms)
-        yield 'done', {'route': 'fallback', 'latency_ms': ms}
+        await asyncio.to_thread(save_turn, session_id, channel, text, 'fallback', 'no_llm', [], HELP, ctx, ms,
+                                [], device_id)
+        yield 'done', {'route': 'fallback', 'latency_ms': ms, 'role': ctx.get('role')}
         return
 
     yield 'route', {'route': 'llm'}
-    msgs = [{'role': 'system', 'content': SYSTEM.format(focus=ctx.get('focus') or 'none',
+    role = R.BY_ID.get(ctx.get('role') or '', R.BY_ID[R.WARD])
+    scope = R.scope(role['id'])
+    role_post = R.describe(role['id'])['post']
+    msgs = [{'role': 'system', 'content': SYSTEM.format(role_post=role_post, role_kind=role['kind'],
+                                                        role_scope=', '.join(scope) if scope else 'whole ward',
+                                                        focus=ctx.get('focus') or 'none',
                                                         listed=', '.join((ctx.get('list') or [])[:5]) or 'none')}]
     for h in history:
         msgs += [{'role': 'user', 'content': h['text']}, {'role': 'assistant', 'content': h['reply'] or ''}]
@@ -189,6 +213,10 @@ async def run_turn(text: str, session_id: str, channel: str = 'web') -> AsyncIte
                     args = json.loads(c['arguments'] or '{}')
                     if c['name'] == 'propose_action':
                         args['session_id'] = session_id
+                    if c['name'] in ('search_complaints', 'my_queue', 'patterns', 'list_actions'):
+                        args.setdefault('scope', scope)
+                    if c['name'] in ('my_queue', 'patterns'):
+                        args['role_label'] = role['label']
                     if not fn:
                         raise T.ToolError(f"unknown tool {c['name']}")
                     res = await asyncio.to_thread(fn, **args)
@@ -212,5 +240,7 @@ async def run_turn(text: str, session_id: str, channel: str = 'web') -> AsyncIte
 
     new_ctx = _next_ctx(ctx, focus, ids, cards)
     ms = int((time.perf_counter() - t0) * 1000)
-    await asyncio.to_thread(save_turn, session_id, channel, text, route_, None, used, said, new_ctx, ms)
-    yield 'done', {'route': route_, 'latency_ms': ms, 'tools': used, 'focus': new_ctx.get('focus')}
+    await asyncio.to_thread(save_turn, session_id, channel, text, route_, None, used, said, new_ctx, ms, cards,
+                            device_id)
+    yield 'done', {'route': route_, 'latency_ms': ms, 'tools': used, 'focus': new_ctx.get('focus'),
+                   'role': new_ctx.get('role')}

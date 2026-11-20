@@ -227,6 +227,19 @@ def main() -> None:
             n_media += cur.rowcount
         db.commit()
 
+        # owner post per complaint type (SOP owner role -> the ward's post for it)
+        from backend.app.tools import owner_post
+        cur.execute('SELECT DISTINCT c.complaint_type, s.owner_role, c.ward_no FROM complaints c '
+                    'JOIN type_sop_map m USING (complaint_type) JOIN sops s ON s.id = m.sop_id')
+        for ctype, role, ward in cur.fetchall():
+            op = owner_post(role, ward or settings.ward_no)
+            cur.execute('UPDATE complaints SET owner_post_id = %s WHERE complaint_type = %s',
+                        (op['post_id'] if op else None, ctype))
+        db.commit()
+        cur.execute('SELECT count(*) FILTER (WHERE owner_post_id IS NULL), '
+                    "count(*) FILTER (WHERE owner_post_id IS NULL AND status_group = 'open') FROM complaints")
+        print('complaints without an owner post in records: %s (open %s)' % cur.fetchone())
+
         for t in ('complaints', 'complaint_events', 'media', 'officials', 'reporting_lines', 'ward_map', 'sops',
                   'type_sop_map', 'role_ladder'):
             cur.execute(f'SELECT count(*) FROM {t}')

@@ -15,10 +15,11 @@ from backend.app.main import app
 api = TestClient(app)
 
 
-def say(text: str, sid: str) -> dict:
+def say(text: str, sid: str, role: str | None = None, device: str = 'test-device-1') -> dict:
     """POST one turn, parse the SSE stream into {route, intent, cards, text, done}."""
     out = {'cards': [], 'text': ''}
-    with api.stream('POST', '/api/agent/turn', json={'text': text, 'session_id': sid}) as r:
+    body = {'text': text, 'session_id': sid, 'role_id': role, 'device_id': device}
+    with api.stream('POST', '/api/agent/turn', json=body) as r:
         assert r.status_code == 200
         ev = None
         for line in r.iter_lines():
@@ -41,9 +42,9 @@ def test_full_workflow_by_voice_commands():
     sid = 'test-e2e'
     # Initiate
     r = say("What's urgent in my ward?", sid)
-    assert r['route'] == 'fast' and r['intent'] == 'urgent'
+    assert r['route'] == 'fast' and r['intent'] == 'my_queue'
     first = r['cards'][0]['items'][0]
-    assert first['is_safety_risk'] and 'Open safety-risk complaints: 26' in r['text']
+    assert first['is_safety_risk'] and '96 open, 26 flagged safety risk' in r['text']
 
     # Understand
     r = say('Open the first one', sid)
@@ -138,7 +139,7 @@ def test_openai_compatible_endpoint_streams():
         lines = [ln for ln in r.iter_lines() if ln.startswith('data: ')]
     assert lines[-1] == 'data: [DONE]'
     text = ''.join(json.loads(ln[6:])['choices'][0]['delta'].get('content', '') for ln in lines[:-1])
-    assert 'Open safety-risk complaints: 26' in text
+    assert '96 open, 26 flagged safety risk' in text
 
 
 def test_openai_endpoint_token(monkeypatch):

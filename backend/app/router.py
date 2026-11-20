@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from . import roles as R
 from . import tools as T
 
 CONFIRM = re.compile(r"^\s*(yes|yeah|yep|confirm(ed)?|go ahead|do it|proceed|ok(ay)?|sure|approve[d]?)\b[\s.!]*"
@@ -40,33 +41,32 @@ class Reply:
     focus: str | None = None
     ids: list[str] | None = None
     tools: list[str] = field(default_factory=list)
+    role: str | None = None
 
 
 def _has(t: str, *words: str) -> bool:
     return any(re.search(rf'\b{w}', t) for w in words)
 
 
-def _resolve_ref(t: str, ctx: dict) -> str | None:
-    """Complaint the user is pointing at: explicit ID > ordinal into last list > keyword in last list > focus."""
+def _resolve_ref(t: str, ctx: dict) -> tuple[str | None, str | None]:
+    """(complaint_id, how): explicit 'id' > 'ordinal' / 'keyword' into the last list > 'focus'."""
     cid = T.normalize_id(t)
     if cid:
-        return cid
+        return cid, 'id'
     last = ctx.get('list') or []
     if last:
         m = re.search(r'\b(?:number|no\.?|#)\s*(\d{1,2})\b', t)
         if m and 0 < int(m.group(1)) <= len(last):
-            return last[int(m.group(1)) - 1]
+            return last[int(m.group(1)) - 1], 'ordinal'
         for w, i in ORDINALS.items():
-            if re.search(rf'\b(the )?{w}( one| complaint)?\b', t) and (_has(t, 'open', 'show', 'take', 'tell', 'that',
-                                                                          'the', 'escalate', 'details', 'about')):
-                return last[i] if -len(last) <= i < len(last) else None
+            if re.search(rf'\bthe {w}( one| complaint)?\b|\b{w} one\b', t):
+                return (last[i], 'ordinal') if -len(last) <= i < len(last) else (None, None)
         kw = [k for k in ISSUE_WORDS if k in t]
-        if kw:
-            for cid in last:
-                c = ctx.get('briefs', {}).get(cid, '')
-                if any(k in c for k in kw):
-                    return cid
-    return ctx.get('focus')
+        if kw and re.search(r'\b(the|that) \w+ one\b|\bone about\b', t):
+            for c in last:
+                if any(k in ctx.get('briefs', {}).get(c, '') for k in kw):
+                    return c, 'keyword'
+    return ctx.get('focus'), ('focus' if ctx.get('focus') else None)
 
 
 def _list_reply(r: dict, intent: str, lead: str) -> Reply:
@@ -80,11 +80,50 @@ def _list_reply(r: dict, intent: str, lead: str) -> Reply:
                  tools=['search_complaints'])
 
 
+CONFIRM_ID = re.compile(r'^\s*(confirm|cancel|approve)\s+(?:action\s*)?#?\s*(\d+)\s*[.!]?\s*$', re.I)
+QUEUE_WORDS = ('high.?priority', 'urgent', 'burning', 'priority', 'critical', 'dangerous', 'safety', 'my queue',
+               'my complaints', 'on my plate', 'my desk', 'what should i (do|work on|focus)', 'my work', 'my day')
+PATTERN_WORDS = ('recurring', 'patterns?', 'hotspots?', 'keeps? coming', 'comes? back', 'repeat(ed|ing)?',
+                 'again and again', 'trends?', 'chronic')
+
+
 def route(text: str, ctx: dict, session_id: str | None) -> Reply | None:
+    role_id = ctx.get('role')
+    new_role, rest = R.detect_role(text)
+    if new_role:
+        role_id = new_role
+        if not rest.strip(' ?.!'):
+            role = R.BY_ID[role_id]
+            q = T.my_queue(R.scope(role_id), role['label'], leadership=role['kind'] != 'field')
+            return Reply(say=f"Okay, {role['label']}. " + q['say'], intent='set_role', role=role_id,
+                         cards=[{'type': 'queue', **q}], ids=[i['id'] for i in q['items']], tools=['my_queue'])
+        text = rest
+    reply = _route(text, {**ctx, 'role': role_id}, session_id)
+    if reply and new_role:
+        reply.role = new_role
+    elif new_role:  # role set, rest goes to the LLM; remember the role anyway
+        ctx['role'] = new_role
+    return reply
+
+
+def _route(text: str, ctx: dict, session_id: str | None) -> Reply | None:
     t = ' ' + re.sub(r'\s+', ' ', text.lower()).strip() + ' '
     raw = text.strip()
+    role_id = ctx.get('role')
+    role = R.BY_ID.get(role_id or '', R.BY_ID[R.WARD])
+    scope = R.scope(role['id'])
+    lead = role['kind'] != 'field'
 
-    # 1. confirmation of a pending write
+    # 1. confirmation of a pending write (by ID from a card, or the latest by voice)
+    m = CONFIRM_ID.match(raw)
+    if m:
+        aid = int(m.group(2))
+        own = T.db.fetchone('SELECT session_id FROM actions WHERE id = %s', (aid,))
+        if not own or own['session_id'] != session_id:
+            return Reply(say=f'Action {aid} is not part of this conversation.', intent='confirm_none')
+        a = T.cancel_action(aid) if m.group(1).lower() == 'cancel' else T.confirm_action(aid)
+        return Reply(say=a['say'], intent='confirm' if a['status'] == 'confirmed' else 'cancel',
+                     cards=[{'type': 'action', **a}], focus=a['complaint_id'], tools=['confirm_action'])
     if CONFIRM.match(raw) or CANCEL.match(raw):
         p = T.latest_proposed(session_id)
         if not p:
@@ -95,14 +134,16 @@ def route(text: str, ctx: dict, session_id: str | None) -> Reply | None:
 
     # 2. follow-ups / my actions
     if _has(t, 'follow.?ups?', 'reminders?', 'pending actions', 'my actions', "what's due", 'what is due', 'due today'):
-        r = T.list_actions(status='confirmed', kind='follow_up', due_only=_has(t, 'due', 'today', 'overdue'))
+        r = T.list_actions(status='confirmed', kind='follow_up', due_only=_has(t, 'due', 'today', 'overdue'),
+                           scope=scope)
         n = len(r['items'])
         say = (f"{n} follow-up{'s' if n != 1 else ''} " + ('due' if _has(t, 'due', 'today') else 'open') + '. ' +
                '; '.join(f"#{a['id']} {a['say']}" for a in r['items'][:3])) if n else 'No follow-ups due.'
         return Reply(say=say.strip(), intent='follow_ups', cards=[{'type': 'actions', **r}], tools=['list_actions'])
 
     # 3. actions on a referenced complaint
-    ref = _resolve_ref(t, ctx)
+    ref, how = _resolve_ref(t, ctx)
+    pointed = how in ('id', 'ordinal', 'keyword') or (how == 'focus' and _has(t, 'it', 'this', 'that'))
     if ref and _has(t, 'escalate', 'push (it|this) up', 'raise (it|this)'):
         a = T.propose_action('escalate', ref, session_id=session_id)
         return Reply(say=a['say'], intent='propose_escalate', cards=[{'type': 'action', **a}], focus=ref,
@@ -140,8 +181,8 @@ def route(text: str, ctx: dict, session_id: str | None) -> Reply | None:
                + (f". Escalation goes to {r['escalate_to']['post']}." if r['escalate_to'] else '.'))
         return Reply(say=say, intent='responsible', cards=[{'type': 'complaint', **c}], focus=ref,
                      tools=['get_complaint'])
-    if ref and (T.normalize_id(t) or _has(t, 'open', 'show', 'details', 'tell me about', 'what about', 'take',
-                                          'photos?', 'pictures?', 'images?')):
+    if ref and (how == 'id' or (pointed and _has(t, 'open', 'show', 'details', 'tell me', 'what about', 'take',
+                                                'photos?', 'pictures?', 'images?', 'more'))):
         c = T.get_complaint(ref)
         r, pr = c['responsible'], c['priority']
         n_ev = len(c['events'])
@@ -154,13 +195,26 @@ def route(text: str, ctx: dict, session_id: str | None) -> Reply | None:
         return Reply(say=say, intent='dossier', cards=[{'type': 'complaint', **c}], focus=c['id'],
                      tools=['get_complaint'])
 
-    # 4. ward-level
-    if _has(t, 'brief', 'summary', 'overview', 'how is (my|the) ward', "how's (my|the) ward", 'status of (my|the) ward'):
+    # 4. role-centred: my queue, recurring patterns, or both in one answer
+    wants_q, wants_p = _has(t, *QUEUE_WORDS), _has(t, *PATTERN_WORDS)
+    if role['id'] == R.WARD and _has(t, 'brief', 'how is (my|the) ward', "how's (my|the) ward"):
         b = T.ward_brief()
         return Reply(say=b['say'], intent='ward_brief', cards=[{'type': 'report', **b}], tools=['ward_brief'])
-    if _has(t, 'urgent', 'burning', 'priority', 'critical', 'dangerous', 'safety'):
-        r = T.search_complaints(status_group='open', safety=True, locality=T.detect_locality(t), limit=10)
-        return _list_reply(r, 'urgent', 'Open safety-risk complaints')
+    if _has(t, 'brief', 'summary', 'overview', 'start my day', 'morning'):
+        wants_q = wants_p = True
+    if wants_q or wants_p:
+        cards, says, ids, used = [], [], None, []
+        if wants_q:
+            q = T.my_queue(scope, role['label'], leadership=lead)
+            cards.append({'type': 'queue', **q}); says.append(q['say']); used.append('my_queue')
+            ids = [i['id'] for i in q['items']]
+        if wants_p:
+            pt = T.patterns(scope, role['label'])
+            cards.append({'type': 'patterns', **pt}); used.append('patterns')
+            says.append(('Patterns: ' if wants_q else '') + pt['say'])
+        if wants_q and ids:
+            says.append("Say 'open the first one' for details.")
+        return Reply(say=' '.join(says), intent='+'.join(used), cards=cards, ids=ids, tools=used)
 
     # 5. new report -> triage (automated classification)
     if _has(t, 'resident (called|said|reported|complained)', 'someone (called|reported)', 'new complaint',
@@ -186,10 +240,12 @@ def route(text: str, ctx: dict, session_id: str | None) -> Reply | None:
     wants_list = _has(t, 'open', 'overdue', 'pending', 'complaints?', 'list', 'show', 'how many', 'any')
     if wants_list and (loc or issue or _has(t, 'open', 'overdue', 'pending')):
         sg = 'resolved' if _has(t, 'resolved', 'closed') else 'open'
-        r = T.search_complaints(status_group=sg, locality=loc, issue_group=issue,
+        mine = scope is not None and not _has(t, 'all', 'whole ward', 'everyone', 'ward wide')
+        r = T.search_complaints(status_group=sg, locality=loc, issue_group=issue, scope=scope if mine else None,
                                 overdue=True if 'overdue' in t else None, limit=10)
-        lead = ' '.join(x for x in [sg.capitalize(), issue.lower() if issue else None, 'complaints',
-                                    f'in {loc}' if loc else None] if x)
-        return _list_reply(r, 'search', lead)
+        heading = ' '.join(x for x in ['Your' if mine else None, sg if mine else sg.capitalize(),
+                                       issue.lower() if issue else None, 'complaints',
+                                       f'in {loc}' if loc else None] if x)
+        return _list_reply(r, 'search', heading)
 
     return None

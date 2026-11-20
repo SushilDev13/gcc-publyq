@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import db
+from . import roles as R
 from .agent import run_turn
 from . import tools as T
 from .config import settings
@@ -119,6 +120,44 @@ def transition(aid: int, op: str):
     return fn(aid)
 
 
+# ── roles + chat history ──────────────────────────────────────────────────
+@app.get('/api/roles')
+def roles():
+    return {'roles': R.list_roles()}
+
+
+@app.get('/api/conversations')
+def conversations(device_id: str = Query(min_length=8, max_length=80), limit: int = Query(20, ge=1, le=100)):
+    rows = db.fetchall("""SELECT c.id, c.role_id, c.title, c.created_at, c.updated_at,
+                                (SELECT count(*) FROM turns t WHERE t.session_id = c.id) turns
+                         FROM conversations c WHERE c.device_id = %s AND c.deleted_at IS NULL
+                         ORDER BY c.updated_at DESC LIMIT %s""", (device_id, limit))
+    return {'items': rows}
+
+
+def _own_conversation(cid: str, device_id: str) -> dict:
+    c = db.fetchone('SELECT * FROM conversations WHERE id = %s AND device_id = %s AND deleted_at IS NULL',
+                    (cid, device_id))
+    if not c:
+        raise HTTPException(404, 'conversation not found')
+    return c
+
+
+@app.get('/api/conversations/{cid}')
+def conversation(cid: str, device_id: str = Query(min_length=8, max_length=80)):
+    c = _own_conversation(cid, device_id)
+    turns = db.fetchall("""SELECT id, text, reply, route, intent, role_id, latency_ms, cards, created_at
+                          FROM turns WHERE session_id = %s ORDER BY id""", (cid,))
+    return {**c, 'turns': turns}
+
+
+@app.delete('/api/conversations/{cid}')
+def delete_conversation(cid: str, device_id: str = Query(min_length=8, max_length=80)):
+    _own_conversation(cid, device_id)
+    db.execute('UPDATE conversations SET deleted_at = now() WHERE id = %s', (cid,))
+    return {'ok': True, 'note': 'Hidden from history. Actions it created stay in the action ledger.'}
+
+
 # ── reports ───────────────────────────────────────────────────────────────
 @app.get('/api/reports/complaint/{cid}')
 def report(cid: str):
@@ -144,6 +183,8 @@ def media(path: str):
 class TurnIn(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
     session_id: str = Field(min_length=1, max_length=80)
+    role_id: str | None = Field(None, max_length=20)
+    device_id: str | None = Field(None, max_length=80)
 
 
 def _sse(event: str, data: dict) -> str:
@@ -154,7 +195,7 @@ def _sse(event: str, data: dict) -> str:
 async def agent_turn(body: TurnIn):
     async def gen():
         try:
-            async for ev, data in run_turn(body.text, body.session_id, 'web'):
+            async for ev, data in run_turn(body.text, body.session_id, 'web', body.role_id, body.device_id):
                 yield _sse(ev, data)
         except Exception:
             log.exception('turn failed')
@@ -177,7 +218,7 @@ def _last_user_text(messages: list[dict]) -> str:
 
 @app.post('/v1/chat/completions')
 @app.post('/chat/completions')
-async def chat_completions(request: Request, session: str | None = None):
+async def chat_completions(request: Request, session: str | None = None, role: str | None = None):
     if settings.custom_llm_token:
         if request.headers.get('authorization', '') != f'Bearer {settings.custom_llm_token}':
             raise HTTPException(401, 'bad token')
@@ -196,7 +237,7 @@ async def chat_completions(request: Request, session: str | None = None):
         yield chunk({'role': 'assistant'})
         try:
             if text:
-                async for ev, data in run_turn(text, sid, 'convoai'):
+                async for ev, data in run_turn(text, sid, 'convoai', role):
                     if ev == 'delta':
                         yield chunk({'content': data['text']})
         except Exception:
@@ -208,7 +249,7 @@ async def chat_completions(request: Request, session: str | None = None):
     if body.get('stream', True):
         return StreamingResponse(gen(), media_type='text/event-stream', headers={'Cache-Control': 'no-cache'})
     out = ''
-    async for ev, data in run_turn(text, sid, 'convoai'):
+    async for ev, data in run_turn(text, sid, 'convoai', role):
         if ev == 'delta':
             out += data['text']
     return {'id': cid, 'object': 'chat.completion', 'created': int(time.time()), 'model': model,

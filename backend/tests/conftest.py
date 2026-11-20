@@ -25,4 +25,5 @@ def clean_workspace():
     """Each test starts with an empty workspace ledger; source tables untouched."""
     db.execute("DELETE FROM actions WHERE session_id LIKE 'test-%'")
     db.execute("DELETE FROM turns WHERE session_id LIKE 'test-%'")
+    db.execute("DELETE FROM conversations WHERE id LIKE 'test-%'")
     yield

@@ -24,7 +24,7 @@ WARD_ROLE_COL = {
 
 BRIEF_COLS = """c.id, c.complaint_date, c.complaint_type, c.issue, c.issue_group, c.locality, c.street,
   c.specific_location, c.status, c.status_group, c.is_safety_risk, c.is_overdue, c.urgency_label,
-  c.holder_post_id, c.hotspot_tier, c.repeat_count"""
+  c.holder_post_id, c.owner_post_id, c.hotspot_tier, c.repeat_count"""
 
 
 class ToolError(ValueError):
@@ -48,7 +48,8 @@ def _place(c: dict) -> str:
 def brief(c: dict) -> dict:
     out = {k: c.get(k) for k in ('id', 'complaint_type', 'issue', 'issue_group', 'locality', 'street',
                                   'specific_location', 'status', 'status_group', 'is_safety_risk', 'is_overdue',
-                                  'urgency_label', 'holder_post_id', 'hotspot_tier', 'repeat_count')}
+                                  'urgency_label', 'holder_post_id', 'owner_post_id', 'hotspot_tier',
+                                  'repeat_count')}
     out['filed'] = c['complaint_date'].strftime('%d %b %Y') if c.get('complaint_date') else None
     out['days_open'] = _days_open(c) if c.get('status_group') == 'open' else None
     out['say'] = f"{c['id']}: {(c.get('issue') or c['complaint_type']).lower()} at {_place(c)}" + (
@@ -110,8 +111,11 @@ def media_url(file: str, source_url: str | None) -> str:
 def search_complaints(status_group: str | None = 'open', locality: str | None = None,
                       issue_group: str | None = None, complaint_type: str | None = None,
                       safety: bool | None = None, overdue: bool | None = None, q: str | None = None,
-                      holder_post_id: str | None = None, limit: int = 10) -> dict:
+                      holder_post_id: str | None = None, limit: int = 10,
+                      scope: list[str] | None = None) -> dict:
     where, p = ['true'], {}
+    if scope is not None:
+        where.append('(c.holder_post_id = ANY(%(scope)s) OR c.owner_post_id = ANY(%(scope)s))'); p['scope'] = scope
     if status_group and status_group != 'all':
         where.append('c.status_group = %(sg)s'); p['sg'] = status_group
     if locality:
@@ -469,13 +473,16 @@ def latest_proposed(session_id: str | None) -> dict | None:
 
 
 def list_actions(status: str | None = None, kind: str | None = None, complaint_id: str | None = None,
-                 due_only: bool = False) -> dict:
-    rows = db.fetchall("""SELECT * FROM actions
+                 due_only: bool = False, scope: list[str] | None = None) -> dict:
+    rows = db.fetchall("""SELECT a.* FROM actions a
                           WHERE (%(s)s::text IS NULL OR status = %(s)s) AND (%(k)s::text IS NULL OR kind = %(k)s)
+                            AND (%(sc)s::text[] IS NULL OR a.target_post_id = ANY(%(sc)s) OR a.complaint_id IN (
+                                 SELECT id FROM complaints WHERE holder_post_id = ANY(%(sc)s)
+                                                              OR owner_post_id = ANY(%(sc)s)))
                             AND (%(c)s::text IS NULL OR complaint_id = %(c)s)
                             AND (NOT %(d)s OR (due_at IS NOT NULL AND due_at <= now() + interval '1 day'))
                           ORDER BY coalesce(due_at, created_at) ASC LIMIT 50""",
-                       {'s': status, 'k': kind, 'c': complaint_id, 'd': due_only})
+                       {'s': status, 'k': kind, 'c': complaint_id, 'd': due_only, 'sc': scope})
     return {'items': [_action_view(r) for r in rows]}
 
 
@@ -537,3 +544,83 @@ def ward_brief(ward_no: int | None = None) -> dict:
             'say': f"Ward {s['ward_no']}: {s['open']} open, {s['open_safety']} safety risks, {s['open_overdue']} overdue."
                    + (f" {h['post']} holds {h['n']} of them." if h and h['post'] else '')
                    + (f" {len(due)} follow-ups due." if due else '')}
+
+
+# ── role-centred views ────────────────────────────────────────────────────
+def _scope_sql(scope: list[str] | None) -> str:
+    return 'TRUE' if scope is None else '(holder_post_id = ANY(%(scope)s) OR owner_post_id = ANY(%(scope)s))'
+
+
+def my_queue(scope: list[str] | None = None, role_label: str = 'Ward 173', limit: int = 10,
+             leadership: bool = True) -> dict:
+    """Open work for a role, most urgent first (safety -> overdue -> oldest)."""
+    r = search_complaints(status_group='open', scope=scope, limit=limit)
+    stats = db.fetchone(f"""SELECT count(*) total,
+              count(*) FILTER (WHERE status_group='resolved' AND complaint_date > now() - interval '90 days') resolved_90d,
+              count(*) FILTER (WHERE status_group='open' AND is_safety_risk) open_safety,
+              count(*) FILTER (WHERE status_group='open' AND coalesce(officer_message_count,0)=0) open_untouched,
+              count(*) FILTER (WHERE status_group='open' AND owner_post_id IS NULL) open_unowned,
+              max(last_fetched_at) as_of
+            FROM complaints WHERE {_scope_sql(scope)}""", {'scope': scope})
+    as_of = stats['as_of'].strftime('%d %b') if stats['as_of'] else 'last fetch'
+    if not r['total']:
+        say = (f"As {role_label}, you have no open complaints in the GCC records as of {as_of}. "
+               f"{stats['total']} complaints in 2026 records, {stats['resolved_90d']} resolved in the last 90 days.")
+    else:
+        first = r['items'][0]
+        say = (f"As {role_label}: {r['total']} open, {stats['open_safety']} flagged safety risk"
+               + (f", {stats['open_untouched']} with no officer action yet" if stats['open_untouched'] else '')
+               + f". Most urgent: {first['say']}.")
+    if leadership and stats['open_unowned']:
+        n = stats['open_unowned']
+        say += (f" {n} open complaint{'s have' if n != 1 else ' has'} no owner post in the records: "
+                f"the SOP owner role has no Ward 173 post.")
+    return {**r, 'role': role_label, 'stats': {k: (v.isoformat() if hasattr(v, 'isoformat') else v)
+                                                for k, v in stats.items()}, 'say': say}
+
+
+def patterns(scope: list[str] | None = None, role_label: str = 'Ward 173') -> dict:
+    """Recurring problems in a role's scope, from real records only."""
+    p = {'scope': scope}
+    w = _scope_sql(scope)
+    spots = db.fetchall(f"""SELECT issue, street, locality, count(*) n,
+              count(*) FILTER (WHERE status_group='open') open,
+              count(*) FILTER (WHERE recurred_after_fix) came_back,
+              min(complaint_date)::date first_seen, max(complaint_date)::date last_seen,
+              (array_agg(id ORDER BY complaint_date DESC))[1:5] ids
+            FROM complaints WHERE {w} AND street IS NOT NULL
+            GROUP BY issue, street, locality HAVING count(*) >= 2
+            ORDER BY count(*) DESC, count(*) FILTER (WHERE status_group='open') DESC LIMIT 6""", p)
+    issues = db.fetchall(f"""SELECT issue, count(*) n,
+              count(*) FILTER (WHERE complaint_date > now() - interval '90 days') last_90d,
+              count(*) FILTER (WHERE complaint_date <= now() - interval '90 days'
+                                 AND complaint_date > now() - interval '180 days') prev_90d,
+              count(*) FILTER (WHERE status_group='open') open
+            FROM complaints WHERE {w} GROUP BY issue ORDER BY count(*) DESC LIMIT 6""", p)
+    tot = db.fetchone(f"""SELECT count(*) n, count(*) FILTER (WHERE recurred_after_fix) came_back,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM last_activity_at - complaint_date)/86400)
+                FILTER (WHERE status_group='resolved' AND last_activity_at IS NOT NULL) median_days_to_close
+            FROM complaints WHERE {w}""", p)
+    months = db.fetchall(f"""SELECT to_char(date_trunc('month', complaint_date), 'Mon') m, count(*) n
+            FROM complaints WHERE {w} AND complaint_date > date_trunc('month', now()) - interval '5 months'
+            GROUP BY date_trunc('month', complaint_date), 1 ORDER BY date_trunc('month', complaint_date)""", p)
+    if not tot['n']:
+        return {'role': role_label, 'spots': [], 'issues': [], 'months': [], 'say': f'No complaints in scope for {role_label}.'}
+    parts = []
+    if spots:
+        s = spots[0]
+        parts.append(f"Top repeat spot: {s['issue'].lower()} at {s['street']}, {s['n']} complaints"
+                     + (f", {s['open']} still open" if s['open'] else '')
+                     + (f", {s['came_back']} came back after a fix" if s['came_back'] else ''))
+    if issues:
+        parts.append('Most common: ' + ', '.join(f"{i['issue'].lower()} {i['n']}" for i in issues[:3]))
+    rising = [i for i in issues if i['last_90d'] >= 3 and i['last_90d'] >= 1.25 * max(1, i['prev_90d'])]
+    if rising:
+        parts.append(f"Rising: {rising[0]['issue'].lower()}, {rising[0]['last_90d']} in the last 90 days "
+                     f"versus {rising[0]['prev_90d']} before")
+    if tot['came_back']:
+        parts.append(f"{tot['came_back']} of {tot['n']} came back after being marked fixed")
+    md = float(tot['median_days_to_close']) if tot['median_days_to_close'] is not None else None
+    return {'role': role_label, 'total': tot['n'], 'came_back': tot['came_back'], 'median_days_to_close': md,
+            'spots': [{**s, 'first_seen': str(s['first_seen']), 'last_seen': str(s['last_seen'])} for s in spots],
+            'issues': issues, 'months': months, 'say': '. '.join(parts) + '.'}
