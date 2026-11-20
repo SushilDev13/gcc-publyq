@@ -19,7 +19,21 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 
 Open http://localhost:8173. Use Chrome or Edge for browser voice input; any browser can type.
 
+## Who it's for
+
+Users pick their GCC **post** on first open, or say "As the Assistant Engineer (Electrical)…".
+- **Field roles** (AE, AE-Electrical, Sanitary Inspector, Park Overseer) see the complaints they hold or own.
+- **Leadership roles** (AEE, ADE-Electrical, Sanitary Officer, EE) also see every post whose escalation
+  chain, taken from the real reporting lines, reaches them.
+- **Ward leadership** sees the whole ward, including complaints whose SOP owner has no post in the records.
+
+Conversations are saved server-side per device. History reopens a conversation and continues it,
+including pending confirmations. Hands-free mode reopens the mic after each spoken reply.
+
 ## Try the end-to-end workflow
+
+Role example: "As an Assistant Engineer - Electrical, what are the high priority complaints and what
+recurring patterns do we hear?"
 
 | Step | Say |
 |---|---|

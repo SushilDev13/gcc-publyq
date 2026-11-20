@@ -31,7 +31,7 @@ BY_ID = {r['id']: r for r in ROLES}
 # Spoken role phrases -> role id. Order matters: most specific first.
 ROLE_PHRASES = [
     (r'assistant engineer\W*(\(|-|–|—)?\W*electrical|electrical (ae|assistant engineer|engineer)|\bae\W*electrical|\bael\b', 'AEL-D173'),
-    (r'assistant divisional engineer|\bade\b|electrical (head|lead|leadership)', 'ADE1-Z13'),
+    (r'ass(?:is)?t(?:ant)?\.? divisional engineer|\bade\b|electrical (head|lead|leadership)', 'ADE1-Z13'),
     (r'assistant executive engineer|\baee\b', 'AEE3-Z13'),
     (r'\bexecutive engineer|\bee\b', 'EE1-Z13'),
     (r'sanitary officer|\bso\b', 'SO3-Z13'),
