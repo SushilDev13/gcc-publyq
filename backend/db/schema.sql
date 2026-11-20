@@ -189,3 +189,14 @@ CREATE TABLE IF NOT EXISTS turns (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS turns_session_idx ON turns (session_id, id);
+
+-- role ladder per department line (who a role hands up to), from gcc_role_ladder.csv
+CREATE TABLE IF NOT EXISTS role_ladder (
+  department_line text NOT NULL,
+  step            int  NOT NULL,
+  role            text NOT NULL,
+  level           text,
+  hands_up_to     text,
+  source          text,
+  PRIMARY KEY (department_line, step)
+);

@@ -13,6 +13,7 @@ import psycopg
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from backend.app.config import ROOT, settings  # noqa: E402
+from backend.app.text import toks  # noqa: E402
 
 C = ROOT / 'Complaints' / 'Images'
 O = ROOT / 'Officials'
@@ -62,24 +63,6 @@ def viewed_by_to_post(code: str | None) -> str | None:
 
 
 # ── GCC type -> SOP matching (within the same issue_group) ────────────────
-SYN = {'coc': 'corporation', 'unauthorized': 'unauthorised', 'manholes': 'manhole',
-       'lights': 'light', 'bins': 'bin', 'trees': 'tree', 'drains': 'drain', 'pot': 'pothole', 'mosquitoes': 'mosquito', 'sweepers': 'sweeping',
-       'advertisement': 'hoarding', 'construction': 'building',
-       'collector': 'collection', 'lighting': 'light'}
-STOP = {'of', 'the', 'to', 'in', 'a', 'and', 'any', 'on', 'regarding', 'complaints', 'other', 'no', '&', 'for'}
-
-
-def toks(t: str) -> set[str]:
-    out = set()
-    t = t.lower().replace('-', ' ').replace('street light', 'streetlight')
-    for w in re.findall(r'[a-z]+', t):
-        w = SYN.get(w, w)
-        if w in STOP:
-            continue
-        out.add(w[:-1] if len(w) > 4 and w.endswith('s') else w)
-    return out
-
-
 # Reviewed by hand where token overlap picks the wrong SOP. Keep this short.
 OVERRIDES = {'Obstruction of Trees': 'Overgrown trees & bushes'}
 
@@ -110,12 +93,17 @@ def main() -> None:
     lines = rows(O / 'gcc_reporting_lines.csv')
     wards = rows(O / 'gcc_ward_map.csv')
     sops = rows(O / 'gcc_complaint_sop.csv')
+    ladder = rows(O / 'gcc_role_ladder.csv')
     post_ids = {o['post_id'] for o in offs}
 
     with psycopg.connect(settings.database_url) as db, db.cursor() as cur:
         cur.execute(SCHEMA.read_text())
         cur.execute('DELETE FROM media; DELETE FROM complaint_events; DELETE FROM type_sop_map; '
-                    'DELETE FROM reporting_lines; DELETE FROM ward_map;')
+                    'DELETE FROM reporting_lines; DELETE FROM ward_map; DELETE FROM role_ladder;')
+        for r in ladder:
+            cur.execute('INSERT INTO role_ladder VALUES (%s,%s,%s,%s,%s,%s)',
+                        (r['department_line'], i(r['step']), r['role'], s(r['level']), s(r['hands_up_to']),
+                         s(r['source'])))
 
         for o in offs:
             cur.execute(
@@ -240,7 +228,7 @@ def main() -> None:
         db.commit()
 
         for t in ('complaints', 'complaint_events', 'media', 'officials', 'reporting_lines', 'ward_map', 'sops',
-                  'type_sop_map'):
+                  'type_sop_map', 'role_ladder'):
             cur.execute(f'SELECT count(*) FROM {t}')
             print(f'{t:18} {cur.fetchone()[0]}')
         weak = [(t, v[2], v[1]) for t, v in mapping.items() if v[1] < 0.15]

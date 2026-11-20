@@ -1,0 +1,6 @@
+# Runtime deps for the Vercel Python function and local dev. Kept minimal.
+fastapi==0.115.6
+psycopg[binary]==3.2.3
+psycopg-pool==3.2.4
+httpx==0.28.1
+pydantic-settings==2.8.1
