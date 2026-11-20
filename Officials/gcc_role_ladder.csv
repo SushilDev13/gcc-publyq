@@ -1,0 +1,17 @@
+department_line,step,role,level,hands_up_to,handoffs_observed,posts_in_data,actions_recorded,source
+Works (civil),1,Assistant Engineer,Ward,Assistant Executive Engineer,5001.0,213,7395,routing data
+Works (civil),2,Assistant Executive Engineer,Zone,Executive Engineer,0.0,49,2521,routing data
+Works (civil),3,Executive Engineer,Zone,,,11,69,routing data
+Electrical,1,Assistant Engineer (Electrical),Ward,Assistant Divisional Engineer (Electrical),543.0,158,716,routing data
+Electrical,2,Assistant Divisional Engineer (Electrical),Zone,,,15,372,routing data
+Health & sanitation,1,Sanitary Inspector,Ward,Sanitary Officer,1212.0,191,3351,routing data
+Health & sanitation,2,Sanitary Officer,Zone,Zonal Health Officer,6.0,36,1140,routing data
+Health & sanitation,3,Zonal Health Officer,Zone,,,2,2,routing data
+Veterinary,1,Veterinary Assistant,Zone,Assistant Health Officer,187.0,16,555,routing data
+Veterinary,2,Assistant Health Officer,Zone,,,14,218,routing data
+Parks,1,Park Overseer,Zone,Assistant Executive Engineer,132.0,15,288,routing data
+Parks,2,Assistant Executive Engineer,Zone,,,49,2521,routing data
+Administration (above all lines),1,Zonal Officer,Zone (15),,,3,6,routing data
+Administration (above all lines),2,"Regional Deputy Commissioner (North: zones 1-5, Central: 6-10, South: 11-15)",Region (3),,,0,0,"public structure (citizenmatters.in), not in complaint records"
+Administration (above all lines),3,"Deputy Commissioners by subject (Works, Health, Revenue & Finance, Education)",City,,,0,0,"public structure (citizenmatters.in), not in complaint records"
+Administration (above all lines),4,Commissioner,City,,,0,0,"public structure (citizenmatters.in), not in complaint records"

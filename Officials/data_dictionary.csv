@@ -1,0 +1,16 @@
+file,column,meaning,source
+all,typical_days_to_resolve,"Median days from filing to resolution, resolved complaints only",records
+all,avg_days_to_resolve,"Mean of the same; pulled up by a few very old cases",records
+gcc_officials.csv,post_id,"Stable post code: role + number + scope (D = ward, Z = zone). Posts, not people",records
+gcc_officials.csv,complaints_all,"Complaints the post acted on, plus open complaints it currently holds",records
+gcc_officials.csv,open_now,"Open complaints held now: GCC 'viewed by' code when present, otherwise the post that normally owns that type in that ward (625 of 1,935)",records + rule
+gcc_officials.csv,reports_to_post_id,"Senior post this one hands work up to most often",records (routing)
+gcc_officials.csv,reports_to_evidence_handoffs,"How many hand-offs back that reporting line",records
+gcc_officials.csv,typical_hours_to_first_action,"Median hours from when a complaint reached the post to its first action",records
+gcc_officials.csv,evidence,"Whether the post ever acted, or only holds assigned open complaints",records
+gcc_reporting_lines.csv,handoffs_observed,"Times a complaint moved from this post up to that post",records
+gcc_role_ladder.csv,source,"Rows above Zonal Officer are GCC's public structure, not in the records",public structure
+gcc_ward_map.csv,ward_committee_officer / mla / party / constituency,"From the Publyq ward master",Publyq ward master
+gcc_complaint_sop.csv,diagnose / carry / fix / not_ours_if,"Standard municipal practice written for this project; confirm with a GCC engineer",practice
+gcc_complaint_sop.csv,officer_notes_naming_other_agency_or_owner_pct,"Share of officer notes on this type that name another agency, a private owner, another division or police",records (text match)
+gcc_complaint_sop.csv,owner_matches_data,"True when the SOP owner is also the role that acted most often in the records",records
