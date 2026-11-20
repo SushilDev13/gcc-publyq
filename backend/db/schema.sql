@@ -200,3 +200,6 @@ CREATE TABLE IF NOT EXISTS role_ladder (
   source          text,
   PRIMARY KEY (department_line, step)
 );
+
+-- session context (focus complaint, last listed IDs) read back each turn
+ALTER TABLE turns ADD COLUMN IF NOT EXISTS ctx jsonb;

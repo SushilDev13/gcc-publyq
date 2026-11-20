@@ -1,13 +1,16 @@
 """FastAPI app: REST tools, agent turn (SSE), OpenAI-compatible endpoint."""
+import json
 import logging
 import time
+import uuid
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import db
+from .agent import run_turn
 from . import tools as T
 from .config import settings
 
@@ -135,3 +138,78 @@ def media(path: str):
     if base not in f.parents or not f.is_file():
         raise HTTPException(404, 'not found')
     return FileResponse(f, headers={'Cache-Control': 'public, max-age=86400'})
+
+
+# ── agent: web front door (SSE) ───────────────────────────────────────────
+class TurnIn(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+    session_id: str = Field(min_length=1, max_length=80)
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+@app.post('/api/agent/turn')
+async def agent_turn(body: TurnIn):
+    async def gen():
+        try:
+            async for ev, data in run_turn(body.text, body.session_id, 'web'):
+                yield _sse(ev, data)
+        except Exception:
+            log.exception('turn failed')
+            yield _sse('delta', {'text': 'Something went wrong on my side. Please try again.'})
+            yield _sse('done', {'route': 'error'})
+    return StreamingResponse(gen(), media_type='text/event-stream',
+                             headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+# ── agent: Agora ConvoAI front door (OpenAI-compatible custom LLM) ────────
+def _last_user_text(messages: list[dict]) -> str:
+    for m in reversed(messages):
+        if m.get('role') == 'user':
+            c = m.get('content')
+            if isinstance(c, list):  # content parts
+                c = ' '.join(p.get('text', '') for p in c if isinstance(p, dict))
+            return (c or '').strip()
+    return ''
+
+
+@app.post('/v1/chat/completions')
+@app.post('/chat/completions')
+async def chat_completions(request: Request, session: str | None = None):
+    if settings.custom_llm_token:
+        if request.headers.get('authorization', '') != f'Bearer {settings.custom_llm_token}':
+            raise HTTPException(401, 'bad token')
+    body = await request.json()
+    text = _last_user_text(body.get('messages') or [])
+    sid = session or str(body.get('user') or 'convoai')
+    cid = f'chatcmpl-{uuid.uuid4().hex[:12]}'
+    model = 'gcc-publyq'
+
+    def chunk(delta: dict, finish: str | None = None) -> str:
+        return 'data: ' + json.dumps({'id': cid, 'object': 'chat.completion.chunk', 'created': int(time.time()),
+                                      'model': model, 'choices': [{'index': 0, 'delta': delta,
+                                                                   'finish_reason': finish}]}) + '\n\n'
+
+    async def gen():
+        yield chunk({'role': 'assistant'})
+        try:
+            if text:
+                async for ev, data in run_turn(text, sid, 'convoai'):
+                    if ev == 'delta':
+                        yield chunk({'content': data['text']})
+        except Exception:
+            log.exception('convoai turn failed')
+            yield chunk({'content': 'Sorry, something went wrong. Please try again.'})
+        yield chunk({}, 'stop')
+        yield 'data: [DONE]\n\n'
+
+    if body.get('stream', True):
+        return StreamingResponse(gen(), media_type='text/event-stream', headers={'Cache-Control': 'no-cache'})
+    out = ''
+    async for ev, data in run_turn(text, sid, 'convoai'):
+        if ev == 'delta':
+            out += data['text']
+    return {'id': cid, 'object': 'chat.completion', 'created': int(time.time()), 'model': model,
+            'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': out}, 'finish_reason': 'stop'}]}
