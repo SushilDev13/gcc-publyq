@@ -148,7 +148,8 @@ def _own_conversation(cid: str, device_id: str) -> dict:
 @app.get('/api/conversations/{cid}')
 def conversation(cid: str, device_id: str = Query(min_length=8, max_length=80)):
     c = _own_conversation(cid, device_id)
-    turns = db.fetchall("""SELECT id, text, reply, route, intent, role_id, latency_ms, cards, created_at
+    turns = db.fetchall("""SELECT id, text, reply, route, intent, role_id, latency_ms, cards, created_at,
+                                 ctx->>'lang' AS lang
                           FROM turns WHERE session_id = %s ORDER BY id""", (cid,))
     return {**c, 'turns': turns}
 
@@ -169,7 +170,8 @@ class VoiceStartIn(BaseModel):
     role_id: str | None = Field(None, max_length=20)
     device_id: str = Field(min_length=8, max_length=80)
     voice: str = Field('anisha', max_length=20)
-    lang: str = Field('en', max_length=4)
+    lang: str = Field('en', max_length=4)            # the language the agent speaks; it hears all three
+    greet_turn_id: int | None = Field(None, gt=0)    # restart to switch language: open with this turn's answer
 
 
 class VoiceStopIn(BaseModel):
@@ -203,9 +205,15 @@ async def voice_start(body: VoiceStartIn):
     db.execute("""INSERT INTO conversations (id, device_id, role_id, title) VALUES (%s,%s,%s,%s)
                   ON CONFLICT (id) DO UPDATE SET updated_at = now()""",
                (body.session_id, body.device_id, body.role_id, 'Voice call'))
+    hello = None
+    if body.greet_turn_id:
+        t = db.fetchone('SELECT reply FROM turns WHERE id = %s AND session_id = %s', (body.greet_turn_id, body.session_id))
+        if not t:
+            raise HTTPException(404, 'turn not found in this conversation')
+        hello = (t['reply'] or '').strip() or None
     try:
         return await voice.start(body.channel, body.agent_uid, body.user_uid, body.session_id, body.role_id,
-                                 body.voice, body.lang)
+                                 body.voice, body.lang, hello)
     except voice.VoiceError as e:
         raise HTTPException(503, str(e))
     except Exception as e:
@@ -350,8 +358,14 @@ async def chat_completions(request: Request, session: str | None = None, role: s
         yield chunk({'role': 'assistant'})
         try:
             if text:
+                switching = False
                 async for ev, data in run_turn(text, sid, 'convoai', role, lang=lang):
-                    if ev == 'delta':
+                    if ev == 'route' and lang in voice.LANGS and data.get('lang') not in (None, lang):
+                        # This agent's voice can't speak the new language. Hold briefly; the browser restarts
+                        # the agent in that language and it opens with this turn's answer.
+                        switching = True
+                        yield chunk({'content': voice.HOLD[lang]})
+                    elif ev == 'delta' and not switching:
                         yield chunk({'content': data['text']})
         except Exception:
             log.exception('convoai turn failed')

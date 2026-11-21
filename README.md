@@ -1,6 +1,6 @@
 # GCC Publyq
 
-**A voice assistant that helps Chennai Corporation staff get real work done on public complaints, hands-free, in English or Tamil.**
+**A voice assistant that helps Chennai Corporation staff get real work done on public complaints, hands-free, in English, Tamil or Hindi — it switches when you do.**
 
 Live at **[gcc.publyq.in](https://gcc.publyq.in)** · Built for *Build with Agora (Bengaluru)*, Theme 2: *Voice AI at Work, Beyond the Call Center*
 
@@ -40,7 +40,7 @@ leaders also see everything their team holds.
 1. **7:00 am:** a **morning brief** arrives in the ward's Telegram group, in Tamil. For each officer it lists the
    most dangerous, the oldest and the recurring complaint. Every complaint ID is a link.
 2. **Tap a link:** GCC Publyq opens in your role and language, with the brief already asked.
-3. **Tap the mic and talk:** *"What should I look at first?"* It answers in natural Chennai-office Tamil (or English),
+3. **Tap the mic and talk:** *"What should I look at first?"* It answers in the language you spoke: natural Chennai-office Tamil, plain Hindi or English,
    with the complaint details, photos and the official procedure on screen.
 4. **Act:** *"Escalate it."* It shows exactly what it will do. *"சரி"* (OK) confirms it.
 5. **Follow up:** the escalation is posted to Telegram, a follow-up is scheduled, and a completion report is ready.
@@ -59,7 +59,7 @@ leaders also see everything their team holds.
 flowchart LR
     U(("Ward officer<br/>phone / browser"))
     subgraph Agora["Agora Conversational AI"]
-        STT["ARES speech-to-text<br/>(English / Tamil)"] --> LLMhop["LLM step"] --> TTS["Murf Falcon 2.1<br/>Anisha / Abhinav"]
+        STT["ARES speech-to-text<br/>(English + Tamil + Hindi)"] --> LLMhop["LLM step"] --> TTS["Murf Falcon 2.1<br/>Anisha"]
     end
     subgraph App["GCC Publyq on Vercel"]
         Brain["Brain<br/>(FastAPI)"]
@@ -108,8 +108,8 @@ Deeper design notes: [ARCHITECTURE.md](ARCHITECTURE.md).
 | Part | What we use | Why |
 |---|---|---|
 | Voice conversation | **Agora Conversational AI** + **Agora RTC** (Web SDK 4.24) | Real-time voice with turn-taking and interruptions handled for us |
-| Speech-to-text | **Agora ARES** (`en-IN`, `ta-IN`) | Agora's own engine; it supports Indian English and Tamil |
-| Text-to-speech | **Murf AI Falcon 2.1**: Anisha (English + Tamil), Abhinav (English) | Natural Indian voices |
+| Speech-to-text | **Agora ARES** (`en-IN,ta-IN,hi-IN` in one call) | Agora's own engine; hears all three, so nobody picks a language |
+| Text-to-speech | **Murf AI Falcon 2.1**: Anisha, in the language the caller is speaking | Natural Indian voice |
 | AI brain | **Claude Opus 5.5** via the official Anthropic Python SDK | Strong reasoning and tool use; it writes and checks its own database queries |
 | Backend | **Python 3.12 + FastAPI** | Streams answers to the voice agent and the browser |
 | Database | **PostgreSQL on Neon** (local Postgres for development) | All complaint records, officials, procedures and the action history |
@@ -183,7 +183,7 @@ backend/app/        brain and tools
   tools.py          complaints, officials, procedures, actions, reports
   dbquery.py        the AI's read-only SQL
   roles.py          posts and who sees what
-  voice.py          Agora + Murf call setup (English / Tamil)
+  voice.py          Agora + Murf call setup (English / Tamil / Hindi)
   brief.py          the 7 am morning brief
   telegram.py       sending and logging Telegram messages
   publyq.py         links into app.publyq.in

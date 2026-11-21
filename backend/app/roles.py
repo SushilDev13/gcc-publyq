@@ -16,15 +16,15 @@ WARD = 'WARD'
 
 # Ward 173 roles offered in the app: field posts first, then leadership.
 ROLES = [
-    {'id': 'AE-D173', 'label': 'Assistant Engineer', 'label_ta': 'உதவிப் பொறியாளர்', 'dept': 'Works (civil)', 'kind': 'field'},
-    {'id': 'AEL-D173', 'label': 'Assistant Engineer (Electrical)', 'label_ta': 'உதவிப் பொறியாளர் (மின்)', 'dept': 'Electrical', 'kind': 'field'},
-    {'id': 'SI-D173', 'label': 'Sanitary Inspector', 'label_ta': 'சுகாதார ஆய்வாளர்', 'dept': 'Health & sanitation', 'kind': 'field'},
-    {'id': 'POS1-Z13', 'label': 'Park Overseer', 'label_ta': 'பூங்கா மேற்பார்வையாளர்', 'dept': 'Parks', 'kind': 'field'},
-    {'id': 'AEE3-Z13', 'label': 'Assistant Executive Engineer', 'label_ta': 'உதவிச் செயற்பொறியாளர்', 'dept': 'Works (civil)', 'kind': 'leadership'},
-    {'id': 'ADE1-Z13', 'label': 'Asst Divisional Engineer (Electrical)', 'label_ta': 'உதவிக் கோட்டப் பொறியாளர் (மின்)', 'dept': 'Electrical', 'kind': 'leadership'},
-    {'id': 'SO3-Z13', 'label': 'Sanitary Officer', 'label_ta': 'சுகாதார அலுவலர்', 'dept': 'Health & sanitation', 'kind': 'leadership'},
-    {'id': 'EE1-Z13', 'label': 'Executive Engineer', 'label_ta': 'செயற்பொறியாளர்', 'dept': 'Works (civil)', 'kind': 'leadership'},
-    {'id': WARD, 'label': 'Ward leadership', 'label_ta': 'வார்டு தலைமை', 'dept': 'All departments', 'kind': 'ward'},
+    {'id': 'AE-D173', 'label': 'Assistant Engineer', 'label_ta': 'உதவிப் பொறியாளர்', 'label_hi': 'सहायक अभियंता', 'dept': 'Works (civil)', 'kind': 'field'},
+    {'id': 'AEL-D173', 'label': 'Assistant Engineer (Electrical)', 'label_ta': 'உதவிப் பொறியாளர் (மின்)', 'label_hi': 'सहायक अभियंता (विद्युत)', 'dept': 'Electrical', 'kind': 'field'},
+    {'id': 'SI-D173', 'label': 'Sanitary Inspector', 'label_ta': 'சுகாதார ஆய்வாளர்', 'label_hi': 'स्वच्छता निरीक्षक', 'dept': 'Health & sanitation', 'kind': 'field'},
+    {'id': 'POS1-Z13', 'label': 'Park Overseer', 'label_ta': 'பூங்கா மேற்பார்வையாளர்', 'label_hi': 'उद्यान पर्यवेक्षक', 'dept': 'Parks', 'kind': 'field'},
+    {'id': 'AEE3-Z13', 'label': 'Assistant Executive Engineer', 'label_ta': 'உதவிச் செயற்பொறியாளர்', 'label_hi': 'सहायक कार्यकारी अभियंता', 'dept': 'Works (civil)', 'kind': 'leadership'},
+    {'id': 'ADE1-Z13', 'label': 'Asst Divisional Engineer (Electrical)', 'label_ta': 'உதவிக் கோட்டப் பொறியாளர் (மின்)', 'label_hi': 'सहायक मंडल अभियंता (विद्युत)', 'dept': 'Electrical', 'kind': 'leadership'},
+    {'id': 'SO3-Z13', 'label': 'Sanitary Officer', 'label_ta': 'சுகாதார அலுவலர்', 'label_hi': 'स्वच्छता अधिकारी', 'dept': 'Health & sanitation', 'kind': 'leadership'},
+    {'id': 'EE1-Z13', 'label': 'Executive Engineer', 'label_ta': 'செயற்பொறியாளர்', 'label_hi': 'कार्यकारी अभियंता', 'dept': 'Works (civil)', 'kind': 'leadership'},
+    {'id': WARD, 'label': 'Ward leadership', 'label_ta': 'வார்டு தலைமை', 'label_hi': 'वार्ड नेतृत्व', 'dept': 'All departments', 'kind': 'ward'},
 ]
 BY_ID = {r['id']: r for r in ROLES}
 

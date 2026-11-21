@@ -18,8 +18,8 @@ together, why, and what was deliberately left out.
 
 ```
  Browser / phone ──RTC audio──► Agora ConvoAI ──────────────────────────────┐
-   │                            ARES STT (en-IN | ta-IN)                    │ POST /v1/chat/completions
-   │                            Murf Falcon 2.1 TTS (Anisha | Abhinav)      │ ?session&role&lang (bearer)
+   │                            ARES STT (en-IN + ta-IN + hi-IN)            │ POST /v1/chat/completions
+   │                            Murf Falcon 2.1 TTS (Anisha, call's lang)   │ ?session&role&lang (bearer)
    │                                                                        ▼
    ├── text chat (SSE) ──► POST /api/agent/turn ──►┌──────────── FastAPI on Vercel (iad1) ────────────┐
    │                                               │ agent.run_turn                                   │
@@ -38,11 +38,12 @@ together, why, and what was deliberately left out.
 | Module | Role |
 |---|---|
 | `agent.py` | One turn: control layer → Claude with 15 tools (manual streaming loop) → fallback. Saves every turn. |
-| `router.py` | Deterministic intents: role intros, confirm/cancel (English and Tamil), and the no-LLM fallback. |
+| `router.py` | Deterministic intents: role intros, confirm/cancel (English, Tamil, Hindi), and the no-LLM fallback. |
+| `lang.py` | The speaker's language from the script of their words (Tamil / Devanagari / Latin); short Latin replies keep the current one. |
 | `tools.py` | Complaints, dossiers, SOP + safety-override priority, escalation chains, triage, actions, reports. |
 | `dbquery.py` | The LLM's SQL: one SELECT, `gcc_reader` role, READ ONLY transaction, 3 s timeout, 50 rows. |
 | `roles.py` | Nine GCC posts. Field posts see what they hold or own; leadership also sees posts that escalate to them. |
-| `voice.py` | Agora session per call: ARES language, Murf voice, brain URL; adapted from Agora's Python quickstart. |
+| `voice.py` | Agora session per call: ARES hears all three languages, Murf speaks the call's language, brain URL; adapted from Agora's Python quickstart. |
 | `brief.py` | The 7 am brief: deterministic, Tamil by default, once per day, logged. |
 | `telegram.py` | Sends and logs every message (sent / failed / not configured); follows supergroup migration. |
 | `publyq.py` | Builds app.publyq.in URLs that mirror its own URL state (`state.js`). |
@@ -50,16 +51,21 @@ together, why, and what was deliberately left out.
 
 ## 3. One spoken turn
 
-1. Agora's VAD detects the end of speech; ARES transcribes it (`en-IN` or `ta-IN`).
+1. Agora's VAD detects the end of speech; ARES transcribes it, listening for `en-IN,ta-IN,hi-IN` at once.
 2. Agora calls `POST /v1/chat/completions?session=…&role=…&lang=…` with the shared bearer token.
 3. `run_turn` loads the session context (role, focus complaint, last list) from the `turns` table: the server
    is stateless, so context lives in Postgres.
-4. Control layer: "confirm" / "சரி" → `confirm_action` in code; otherwise Claude streams. It opens with
+4. The script of the words sets the turn's language (`lang.py`); Claude replies in it. Control layer: "confirm" /
+   "சரி" / "हाँ" → `confirm_action` in code; otherwise Claude streams. It opens with
    "Let me check…" before tool calls so the caller isn't left in silence.
 5. Tool calls run in-process against Neon; results go back to Claude; text streams back to Agora as
    `chat.completion.chunk`s, and Murf speaks it.
-6. The turn (text, reply, tools, cards, latency) is saved. The browser polls the conversation and shows the same
-   cards a typed question would.
+6. The turn (text, reply, tools, cards, language, latency) is saved. The browser polls the conversation and shows
+   the same cards a typed question would.
+7. **Language switch.** A running agent's TTS can't be changed (Agora's update takes `llm` and `token` only). If the
+   turn's language differs from the call's, the brain speaks a short holding line ("One moment.") instead of the
+   answer; the browser sees the new language on the polled turn, stops the agent and starts one in the new language
+   in the same channel, with that turn's saved answer as its greeting. Costs one agent start (~2 s), once per switch.
 
 **Measured:** first spoken word ≈ 0.9–1.1 s on Claude turns with lookups; deterministic turns 1–20 ms server-side.
 
@@ -130,4 +136,6 @@ non-empty target, re-applies the read-only role and checks row counts per table.
 - **Snapshot data:** the records are from 15–20 Nov 2026; Publyq's views are live, so filtered counts can drift.
 - **No GCC write-back:** GCC's portal has no API for outside apps.
 - **Identity is per device:** there's no sign-in yet; the role is chosen, not verified.
-- **Tamil speech** is one language per call; mixed Tamil–English recognition hasn't been measured on many real calls.
+- **Three-language calls** (ARES `en-IN,ta-IN,hi-IN`, auto switching) haven't been measured on many real calls yet;
+  Murf `hi-IN` for the Anisha voice is not yet verified on this account. Hinglish in Latin script is treated as English.
+- **Cards and the morning brief** stay English / Tamil; the screen's own words follow the conversation language.

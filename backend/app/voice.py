@@ -4,12 +4,19 @@ Adapted from Agora's official Python quickstart (agent-quickstart-python,
 server/src/agent.py + server.py): same token builder, turn detection, RTM data
 channel and start/stop lifecycle. Changed only the documented vendor blocks:
   - LLM  -> our own brain at /v1/chat/completions (OpenAI-style, role + session
-            passed in the URL, CUSTOM_LLM_TOKEN as the bearer key)
+            + the call's spoken language in the URL, CUSTOM_LLM_TOKEN as bearer)
   - TTS  -> Murf Falcon 2.1 (model "falcon-2.1", the only model Murf serves
-            over its stream-input WebSocket), voice en-IN-anisha (default) or
-            en-IN-abhinav, locale en-IN
-  - STT  -> Agora ARES, language en-IN. The managed Deepgram preset timed out
-            on this project (agent-error asr 1000); ARES is Agora's own engine.
+            over its stream-input WebSocket), voice en-IN-anisha, locale = the
+            language the call is speaking (en-IN, ta-IN or hi-IN)
+  - STT  -> Agora ARES hearing en-IN, ta-IN and hi-IN in the same call (Agora
+            sends the list as one comma-separated asr.language). The managed
+            Deepgram preset timed out on this project (agent-error asr 1000).
+
+Language switching is automatic. ARES hears all three languages, but a running
+agent's TTS can't be changed (Agora's update takes llm and token only). So when
+the speaker changes language, the brain says a short holding line, the browser
+restarts the agent with the new locale, and the new agent's greeting is the
+answer (see main.voice_start greet_turn_id and app.js switchLanguage).
 """
 from __future__ import annotations
 
@@ -38,11 +45,19 @@ INSTRUCTIONS = ('You are GCC Publyq, a voice assistant for Greater Chennai Corpo
 VOICES = {'anisha': {'id': 'en-IN-anisha', 'label': 'Anisha (en-IN, female)'},
           'abhinav': {'id': 'en-IN-abhinav', 'label': 'Abhinav (en-IN, male)'}}
 DEFAULT_VOICE = 'anisha'
-# One language per call: ARES takes a single language. Murf: Anisha speaks ta-IN, Abhinav does not
-# (supported locales checked via GET /v1/speech/voices).
+# Murf: Anisha speaks en-IN and ta-IN (checked via GET /v1/speech/voices); hi-IN for her is NOT yet verified on
+# this account (check that endpoint; if missing, pick a Murf voice that lists all three). Abhinav is English only,
+# so a call that may switch language uses Anisha.
 LANGS = {'en': {'code': 'en-IN', 'voices': ('anisha', 'abhinav')},
-         'ta': {'code': 'ta-IN', 'voices': ('anisha',)}}
+         'ta': {'code': 'ta-IN', 'voices': ('anisha',)},
+         'hi': {'code': 'hi-IN', 'voices': ('anisha',)}}
 DEFAULT_LANG = 'en'
+HEARS = [v['code'] for v in LANGS.values()]          # ARES listens for all three in every call
+# Spoken by the old agent while the call switches language (English office words every caller knows).
+HOLD = {'en': 'One moment.', 'ta': 'ஒரு நிமிடம்.', 'hi': 'एक पल।'}
+FAILURE = {'en': 'Sorry, I could not reach the ward records. Please try again.',
+           'ta': 'மன்னிக்கவும், வார்டு பதிவுகளை அணுக முடியவில்லை. மீண்டும் முயற்சிக்கவும்.',
+           'hi': 'माफ़ कीजिए, वार्ड के रिकॉर्ड तक नहीं पहुँच पाई। फिर से कोशिश कीजिए।'}
 
 
 class VoiceError(RuntimeError):
@@ -84,6 +99,13 @@ def greeting(role_id: str | None, lang: str = DEFAULT_LANG) -> str:
                     + '. என்ன உதவி வேண்டும்?')
         return (f"வணக்கம், {r['label_ta']}. உங்களிடம் நிலுவையில் புகார்கள் இல்லை. "
                 'மீண்டும் வரும் பிரச்சினைகள், ஒரு புகார், அல்லது புதிய தகவல் பற்றிக் கேளுங்கள்.')
+    if lang == 'hi':
+        if r['open']:
+            return (f"नमस्ते, {r['label_hi']}. आपके पास {r['open']} शिकायतें खुली हैं"
+                    + (f", जिनमें {r['open_safety']} सुरक्षा जोखिम हैं" if r['open_safety'] else '')
+                    + '। बताइए, क्या मदद करूँ?')
+        return (f"नमस्ते, {r['label_hi']}. आपके पास कोई शिकायत खुली नहीं है। "
+                'बार-बार आने वाली समस्याओं, किसी शिकायत, या नई सूचना के बारे में पूछिए।')
     if r['open']:
         return (f"Hello {r['label']}. You have {r['open']} open complaints"
                 + (f", {r['open_safety']} flagged safety risk" if r['open_safety'] else '') + '. What do you need?')
@@ -96,8 +118,7 @@ def vendors(session_id: str, role_id: str | None, hello: str, voice: str = DEFAU
     brain_url = (settings.public_base_url.rstrip('/') + '/v1/chat/completions?'
                  + urlencode({'session': session_id, 'lang': lang, **({'role': role_id} if role_id else {})}))
     llm = OpenAI(api_key=settings.custom_llm_token, base_url=brain_url, model='gcc-publyq',
-                 greeting_message=hello, failure_message='Sorry, I could not reach the ward records. Please try again.',
-                 max_history=10)
+                 greeting_message=hello, failure_message=FAILURE.get(lang, FAILURE['en']), max_history=10)
     if lang not in LANGS:
         raise VoiceError(f"Unknown language {lang!r}; choose {', '.join(LANGS)}")
     if voice not in VOICES:
@@ -114,17 +135,19 @@ def vendors(session_id: str, role_id: str | None, hello: str, voice: str = DEFAU
 
 
 async def start(channel: str, agent_uid: int, user_uid: int, session_id: str, role_id: str | None,
-                voice: str = DEFAULT_VOICE, lang: str = DEFAULT_LANG) -> dict:
+                voice: str = DEFAULT_VOICE, lang: str = DEFAULT_LANG, hello: str | None = None) -> dict:
+    """Start the agent. `hello` replaces the greeting when the call restarts to switch language: it is the
+    answer the person is waiting for, spoken in their new language."""
     cfg = configured()
     if not cfg['ready']:
         raise VoiceError('Voice is not configured: missing ' + ', '.join(cfg['missing']))
     role_id = role_id if role_id in R.BY_ID else None
-    hello = greeting(role_id, lang)
+    hello = hello or greeting(role_id, lang)
     stt, llm, tts = vendors(session_id, role_id, hello, voice, lang)
     agent = AgoraAgent(
         client=_client(), instructions=INSTRUCTIONS, greeting=hello,
-        failure_message='Sorry, I could not reach the ward records. Please try again.', max_history=50,
-        turn_detection={'language': LANGS[lang]['code'], 'config': {
+        failure_message=FAILURE.get(lang, FAILURE['en']), max_history=50,
+        turn_detection={'language': HEARS, 'config': {
             'speech_threshold': 0.5,
             'start_of_speech': {'mode': 'vad', 'vad_config': {'interrupt_duration_ms': 160, 'prefix_padding_ms': 300}},
             'end_of_speech': {'mode': 'vad', 'vad_config': {'silence_duration_ms': 480}},
@@ -137,9 +160,9 @@ async def start(channel: str, agent_uid: int, user_uid: int, session_id: str, ro
     session = agent.create_async_session(channel=channel, agent_uid=str(agent_uid), remote_uids=[str(user_uid)],
                                          enable_string_uid=False, idle_timeout=30, expires_in=3600)
     agent_id = await session.start()
-    log.info('voice agent started agent_id=%s channel=%s role=%s', agent_id, channel, role_id)
+    log.info('voice agent started agent_id=%s channel=%s role=%s lang=%s', agent_id, channel, role_id, lang)
     return {'agent_id': agent_id, 'channel': channel, 'greeting': hello, 'voice': VOICES[voice]['label'],
-            'lang': LANGS[lang]['code']}
+            'lang': lang}
 
 
 async def stop(agent_id: str) -> None:

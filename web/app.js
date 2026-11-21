@@ -1,6 +1,7 @@
 /* GCC Publyq web client — vanilla JS, no build step.
+ * Voice first: one big mic. A call hears English, Tamil and Hindi; the language the person speaks becomes the
+ * language of the answer, the voice and this screen. Typing works the same way.
  * Role first: the user picks (or says) which GCC post they are; every answer is scoped to it.
- * Loop: type, or talk over an Agora voice call (Murf Falcon 2.1) -> the same brain -> reply + cards. No browser speech.
  * Conversations are stored server-side per device and can be resumed from History. */
 (() => {
   'use strict';
@@ -20,6 +21,40 @@
   let roles = [];
   const seenTurns = new Set();   // turn IDs already on screen (streamed or loaded)
   let voiceStatus = { ready: false, missing: [] };
+  let health = null;
+
+  // ── the screen speaks the conversation's language (set by what the person last said) ──
+  const LANGS = ['en', 'ta', 'hi'];
+  const S = {
+    en: { tap: 'Tap and talk', orAsk: 'Or ask', type: 'Or type here…', who: 'Who are you?', whoSub: 'Pick your post. Answers follow your responsibilities.',
+      field: 'In the field', lead: 'Leadership', open: (n) => `${n} open`, safety: (n) => `${n} safety`,
+      desk: (n, s) => n ? `${n} open on your desk${s ? `, ${s} safety risk` : ''}.` : 'Nothing open on your desk.',
+      connecting: 'Connecting…', listening: 'Listening. Speak in English, Tamil or Hindi.', switching: 'Switching to English…', end: 'End',
+      started: 'Call started', ended: 'Call ended', failed: "Couldn't start the call. You can still type.", voiceOff: 'Voice is not available right now. You can type.',
+      offline: "Can't reach the server.", footer: (n) => `${n} complaints · Ward 173 (Adyar), Chennai`, history: 'Conversations', none: 'No conversations yet.',
+      loading: 'Loading…', resumed: 'Continued from earlier', waiting: 'Waiting for your confirmation', recorded: 'Recorded', confirm: 'Confirm', cancel: 'Cancel',
+      savedHere: 'Saved here and shared on Telegram, not on the GCC portal.', noServer: "I couldn't reach the server. Check your connection and try again." },
+    ta: { tap: 'தட்டிப் பேசுங்கள்', orAsk: 'அல்லது கேளுங்கள்', type: 'அல்லது இங்கே எழுதுங்கள்…', who: 'நீங்கள் யார்?', whoSub: 'உங்கள் பதவியைத் தேர்ந்தெடுங்கள்.',
+      field: 'களப் பணி', lead: 'தலைமை', open: (n) => `${n} நிலுவை`, safety: (n) => `${n} அபாயம்`,
+      desk: (n, s) => n ? `உங்களிடம் ${n} புகார்கள் நிலுவையில்${s ? `, ${s} பாதுகாப்பு அபாயம்` : ''}.` : 'நிலுவையில் புகார்கள் இல்லை.',
+      connecting: 'இணைக்கிறது…', listening: 'கேட்கிறேன். தமிழ், ஆங்கிலம் அல்லது இந்தியில் பேசுங்கள்.', switching: 'தமிழுக்கு மாறுகிறது…', end: 'முடி',
+      started: 'அழைப்பு தொடங்கியது', ended: 'அழைப்பு முடிந்தது', failed: 'அழைப்பைத் தொடங்க முடியவில்லை. எழுதிக் கேட்கலாம்.', voiceOff: 'இப்போது குரல் வசதி இல்லை. எழுதிக் கேட்கலாம்.',
+      offline: 'சர்வருடன் இணைக்க முடியவில்லை.', footer: (n) => `${n} புகார்கள் · வார்டு 173 (அடையாறு), சென்னை`, history: 'உரையாடல்கள்', none: 'உரையாடல்கள் இல்லை.',
+      loading: 'ஏற்றுகிறது…', resumed: 'முன்பு விட்ட இடத்திலிருந்து', waiting: 'உங்கள் உறுதிக்குக் காத்திருக்கிறது', recorded: 'பதிவு செய்யப்பட்டது', confirm: 'உறுதி செய்', cancel: 'ரத்து',
+      savedHere: 'இங்கே பதிவாகி Telegram-ல் பகிரப்படும்; GCC போர்டலில் அல்ல.', noServer: 'சர்வருடன் இணைக்க முடியவில்லை. இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.' },
+    hi: { tap: 'दबाएँ और बोलें', orAsk: 'या पूछें', type: 'या यहाँ लिखें…', who: 'आप कौन हैं?', whoSub: 'अपना पद चुनिए।',
+      field: 'फ़ील्ड', lead: 'नेतृत्व', open: (n) => `${n} खुली`, safety: (n) => `${n} जोखिम`,
+      desk: (n, s) => n ? `आपके पास ${n} शिकायतें खुली हैं${s ? `, ${s} सुरक्षा जोखिम` : ''}।` : 'कोई शिकायत खुली नहीं है।',
+      connecting: 'जुड़ रहा है…', listening: 'सुन रही हूँ। हिंदी, अंग्रेज़ी या तमिल में बोलिए।', switching: 'हिंदी में बदल रही हूँ…', end: 'बंद करें',
+      started: 'कॉल शुरू', ended: 'कॉल खत्म', failed: 'कॉल शुरू नहीं हो पाई। आप लिखकर पूछ सकते हैं।', voiceOff: 'अभी आवाज़ उपलब्ध नहीं है। आप लिखकर पूछ सकते हैं।',
+      offline: 'सर्वर से नहीं जुड़ पा रहे।', footer: (n) => `${n} शिकायतें · वार्ड 173 (अडयार), चेन्नई`, history: 'बातचीत', none: 'अभी कोई बातचीत नहीं।',
+      loading: 'लोड हो रहा है…', resumed: 'पिछली बातचीत से जारी', waiting: 'आपकी पुष्टि का इंतज़ार', recorded: 'दर्ज हो गया', confirm: 'पक्का करें', cancel: 'रद्द करें',
+      savedHere: 'यहाँ दर्ज होकर Telegram पर भेजा जाएगा, GCC पोर्टल पर नहीं।', noServer: 'सर्वर से नहीं जुड़ पाए। कनेक्शन देखकर फिर कोशिश कीजिए।' },
+  };
+  const guess = () => { const n = (navigator.language || '').slice(0, 2); return LANGS.includes(n) ? n : 'en'; };
+  let lang = LANGS.includes(store.get('lang')) ? store.get('lang') : guess();
+  const t = () => S[lang];
+  const roleName = (r) => (lang === 'ta' && r.label_ta) || (lang === 'hi' && r.label_hi) || r.label;
 
   // ── helpers ────────────────────────────────────────────────────────────
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -69,8 +104,7 @@
     queue(q) {
       const s = q.stats || {};
       return `<div class="card"><h3>${esc(q.role)} · open work</h3>
-        <div class="stats"><span><b>${q.total}</b> open</span><span><b>${s.open_safety ?? 0}</b> safety</span><span><b>${s.open_untouched ?? 0}</b> untouched</span>
-        <span><b>${s.resolved_90d ?? 0}</b> resolved (90 d)</span>${s.open_unowned ? `<span><b>${s.open_unowned}</b> no owner post</span>` : ''}</div>
+        <div class="stats"><span><b>${q.total}</b> open</span><span><b>${s.open_safety ?? 0}</b> safety</span><span><b>${s.open_untouched ?? 0}</b> untouched</span></div>
         ${q.items.length ? `<ul class="rows">${rows(q.items)}</ul>` : '<p class="note">Nothing open in your scope in the GCC records.</p>'}
         ${q.total > q.items.length ? `<p class="note">Showing ${q.items.length} of ${q.total}, most urgent first.</p>` : ''}
         ${pq(q.publyq)}</div>`;
@@ -86,7 +120,7 @@
         <div class="stats"><span><b>${p.total}</b> complaints in 2026</span><span><b>${p.came_back}</b> came back after fix</span>
         ${p.median_days_to_close != null ? `<span><b>${p.median_days_to_close.toFixed(1)}</b> median days to close</span>` : ''}</div>
         ${spots ? `<h4>Repeat spots</h4><ul class="spots">${spots}</ul>` : '<p class="note">No street has repeated complaints in your scope.</p>'}
-        <h4>Top issues <span class="note">· tap to open in Publyq</span></h4><div class="bars">${bars}</div>
+        <h4>Top issues</h4><div class="bars">${bars}</div>
         ${pq((p.publyq_links || {}).map)}</div>`;
     },
     complaint_list(c) {
@@ -112,10 +146,9 @@
         <div class="chain">${r.holder ? post(r.holder) : '<span>no holder recorded</span>'}<i>→</i>${post(r.escalate_to)}${r.owner && r.holder && r.owner.post_id !== r.holder.post_id ? ` <i>· SOP owner</i> ${post(r.owner)}` : ''}</div>
         ${s ? `<h4>SOP · ${esc(s.sop_type)}</h4>
           ${c.status_group === 'open' ? `<p><span class="tag ${pr.tier === 'P1' ? 'crit' : pr.tier === 'P2' ? 'warn' : 'info'}">${esc(pr.tier)}</span>${esc(pr.say)}</p>
-          ${pr.rule ? `<p class="note">${esc(pr.rule)} (SOP rule)</p>` : ''}` : ''}
+` : ''}
           <ol class="steps">${s.diagnose.map((d) => `<li>${esc(d)}</li>`).join('')}</ol>
-          <p style="font-size:13.5px;margin-top:6px"><b>Fix:</b> ${esc(s.fix || '—')}${s.not_ours_if && s.not_ours_if !== '-' ? ` <br><b>Not GCC's if:</b> ${esc(s.not_ours_if)}` : ''}</p>
-          <p class="note">${esc(s.sop_source)}</p>` : ''}
+          <p style="font-size:13.5px;margin-top:6px"><b>Fix:</b> ${esc(s.fix || '—')}${s.not_ours_if && s.not_ours_if !== '-' ? ` <br><b>Not GCC's if:</b> ${esc(s.not_ours_if)}` : ''}</p>` : ''}
         ${media ? `<h4>Evidence (${c.media.length})</h4><div class="photos">${media}</div>` : ''}
         ${events ? `<h4>Officer actions on GCC portal</h4><ul class="timeline">${events}</ul>` : '<h4>Officer actions</h4><p class="note">None recorded on the GCC portal.</p>'}
         ${actions ? `<h4>Logged here</h4><ul class="timeline">${actions}</ul>` : ''}
@@ -126,13 +159,13 @@
           ${pq(c.publyq, 'inline')}
           ${c.source_url ? `<a class="note" href="${esc(c.source_url)}" target="_blank" rel="noopener" style="align-self:center">GCC portal ↗</a>` : ''}
         </div>
-        <p class="note">Data as of GCC portal fetch ${esc((c.data_as_of || '').slice(0, 10))}.</p>
+        ${c.data_as_of ? `<p class="note">GCC data · ${esc(fmtDate(c.data_as_of).split(',')[0])}</p>` : ''}
       </div>`;
     },
     action(a) {
       const pending = a.status === 'proposed';
       return `<div class="card action ${esc(a.status)}" data-action-id="${a.id}">
-        <h3>${pending ? 'Waiting for your confirmation' : a.status === 'confirmed' ? 'Recorded' : esc(a.status)} · #${a.id}</h3>
+        <h3>${pending ? t().waiting : a.status === 'confirmed' ? t().recorded : esc(a.status)} · #${a.id}</h3>
         <dl class="kv"><dt>Action</dt><dd>${esc(a.kind.replace('_', ' '))} · ${esc(a.complaint_id)}</dd>
           ${a.target_post ? `<dt>To</dt><dd>${esc(a.target_post)}</dd>` : ''}
           ${a.due_at ? `<dt>Due</dt><dd>${esc(fmtDate(a.due_at))}</dd>` : ''}
@@ -141,8 +174,8 @@
           ${(a.payload || {}).to_status ? `<dt>Requested status</dt><dd>${esc(a.payload.to_status.replace('_', ' '))}</dd>` : ''}
           ${a.notify && !a.communication && a.status === 'proposed' ? '<dt>Share</dt><dd>Ward 173 Telegram group, after you confirm</dd>' : ''}
           ${a.communication ? `<dt>Telegram</dt><dd><span class="tag ${a.communication.status === 'sent' ? 'pos' : 'warn'}">${esc(a.communication.status)}</span>${a.communication.error ? ' ' + esc(a.communication.error) : ''}</dd>` : ''}</dl>
-        ${pending ? `<div class="act"><button class="primary" data-say="Confirm #${a.id}">Confirm #${a.id}</button><button data-say="Cancel #${a.id}">Cancel</button></div>` : ''}
-        <p class="note">Recorded in GCC Publyq, not written to the GCC portal.</p>
+        ${pending ? `<div class="act"><button class="primary" data-say="Confirm #${a.id}">${esc(t().confirm)}</button><button data-say="Cancel #${a.id}">${esc(t().cancel)}</button></div>` : ''}
+        ${pending ? `<p class="note">${esc(t().savedHere)}</p>` : ''}
       </div>`;
     },
     actions(c) {
@@ -156,7 +189,7 @@
         <span class="t">${esc(p.post)}</span><span class="s">${p.open_now || 0} open${p.typical_hours_to_first_action ? ` · first action ~${Math.round(p.typical_hours_to_first_action)} h` : ''}</span></button></li>`).join('');
       return `<div class="card"><h3>Ward ${c.ward_no} · ${esc(c.zone)} zone</h3>
         <dl class="kv"><dt>Ward committee officer</dt><dd>${esc(c.ward_committee_officer)}</dd><dt>MLA</dt><dd>${esc(c.mla)} (${esc(c.party)}, ${esc(c.constituency)})</dd></dl>
-        <h4>Posts</h4><ul class="rows">${li}</ul><p class="note">GCC records name posts, not people.</p></div>`;
+        <h4>Posts</h4><ul class="rows">${li}</ul></div>`;
     },
     official(p) {
       return `<div class="card"><h3>${esc(p.post)}</h3>
@@ -174,7 +207,7 @@
         <h4>Fix</h4><p>${esc(s.fix)}</p>
         <dl class="kv" style="margin-top:8px"><dt>Owner</dt><dd>${esc(s.owner_role)}</dd><dt>Approver</dt><dd>${esc(s.approver_role)}</dd>
         ${s.not_ours_if && s.not_ours_if !== '-' ? `<dt>Not GCC's if</dt><dd>${esc(s.not_ours_if)}</dd>` : ''}</dl>
-        <p class="note">${esc(s.sop_source)}</p></div>`;
+</div>`;
     },
     triage(t) {
       if (!t.complaint_type) return `<div class="card"><h3>Triage</h3><p>${esc(t.say)}</p></div>`;
@@ -192,10 +225,8 @@
       const cols = q.columns || [];
       const head = cols.map((c) => `<th>${esc(c)}</th>`).join('');
       const body = data.slice(0, 20).map((r) => `<tr>${cols.map((c) => `<td>${esc(typeof r[c] === 'object' && r[c] !== null ? JSON.stringify(r[c]) : r[c])}</td>`).join('')}</tr>`).join('');
-      return `<div class="card"><h3>Looked up in the records · ${q.row_count} row${q.row_count === 1 ? '' : 's'}${q.truncated ? ' (truncated)' : ''}</h3>
-        <div class="tablewrap"><table class="data"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
-        ${pq(q.publyq)}
-        <details class="note"><summary>Query</summary><code>${esc(q.sql || '')}</code></details></div>`;
+      return `<div class="card"><div class="tablewrap"><table class="data"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+        ${q.row_count > 20 ? `<p class="note">First 20 of ${q.row_count}</p>` : ''}${pq(q.publyq)}</div>`;
     },
     communications(c) {
       const li = c.items.map((m) => `<li><span class="tag ${m.status === 'sent' ? 'pos' : 'warn'}">${esc(m.status)}</span>
@@ -209,39 +240,42 @@
         <div class="act">${pq(L.safety, 'inline')}${pq(L.overdue, 'inline')}${pq(L.map, 'inline')}${pq(L.accountability, 'inline')}</div>
         ${groups ? `<h4>Open by issue group</h4><ul class="linklist">${groups}</ul>` : ''}</div>`;
     },
-    publyq(l) { return `<div class="card"><h3>Publyq</h3>${pq(l, 'big')}<p class="note">Opens app.publyq.in in a new tab — the same GCC records, live analytics view.</p></div>`; },
+    publyq(l) { return `<div class="card">${pq(l, 'big')}</div>`; },
   };
   const card = (c) => (R[c.type] ? h(R[c.type](c) || '<span hidden></span>') : null);
 
-  // ── role selection ─────────────────────────────────────────────────────
+  // ── role selection + the voice-first home ──────────────────────────
   const CHIPS = {
-    field: [["What's on my plate?", "What's on my plate?"], ['Recurring problems', 'What are the recurring patterns?'],
-      ['Brief me', 'Brief me'], ['My follow-ups', 'What follow-ups do I have?'],
-      ['Triage a call', 'A resident called about an open manhole near the school in Gandhi Nagar']],
-    leadership: [['Brief me', 'Brief me'], ['Where are we stuck?', 'What is high priority for my team?'],
-      ['Recurring patterns', 'What are the recurring patterns?'], ['Follow-ups due', 'What follow-ups are due?'],
-      ["Who's in charge?", 'Who are the officials?']],
+    field: {
+      en: [["What's on my plate?", "What's on my plate?"], ['Recurring problems', 'What are the recurring patterns?'], ['My follow-ups', 'What follow-ups do I have?']],
+      ta: [['இன்று என் வேலை', 'இன்று என் வேலை என்ன?'], ['மீண்டும் வரும் பிரச்சினைகள்', 'மீண்டும் மீண்டும் வரும் பிரச்சினைகள் என்ன?'], ['என் பின்தொடர்வுகள்', 'நான் பின்தொடர வேண்டியவை என்ன?']],
+      hi: [['आज का काम', 'आज मेरा काम क्या है?'], ['बार-बार की समस्याएँ', 'बार-बार आने वाली समस्याएँ कौन सी हैं?'], ['मेरे फ़ॉलो-अप', 'मेरे कौन से फ़ॉलो-अप बाकी हैं?']],
+    },
+    leadership: {
+      en: [['Brief me', 'Brief me'], ['Where are we stuck?', 'What is high priority for my team?'], ['Follow-ups due', 'What follow-ups are due?']],
+      ta: [['சுருக்கம்', 'இன்றைய சுருக்கம் சொல்லுங்கள்'], ['எங்கே தேங்கியுள்ளது?', 'என் குழுவுக்கு எது அவசரம்?'], ['பின்தொடர வேண்டியவை', 'இன்று பின்தொடர வேண்டியவை என்ன?']],
+      hi: [['सारांश', 'आज का सारांश बताइए'], ['कहाँ अटके हैं?', 'मेरी टीम के लिए सबसे ज़रूरी क्या है?'], ['बाकी फ़ॉलो-अप', 'कौन से फ़ॉलो-अप बाकी हैं?']],
+    },
   };
   CHIPS.ward = CHIPS.leadership;
+  const MIC_SVG = '<svg viewBox="0 0 24 24" width="44" height="44" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
 
   function setRole(id, { announce } = {}) {
     roleId = id; store.set('role', id);
     const r = roleOf(id);
     pill.hidden = !r;
-    if (r) { pill.textContent = `${r.label} · ${r.open} open`; pill.title = `${r.post} — tap to switch role`; }
+    if (r) { pill.textContent = roleName(r); pill.title = r.post; }
     if (announce && r) send(`I am the ${r.label}`);
   }
 
   function showRolePicker() {
     feed.innerHTML = '';
     const group = (kind) => roles.filter((r) => r.kind === kind).map((r) => `<button class="role-card${r.id === roleId ? ' on' : ''}" data-role="${esc(r.id)}">
-      <span class="n ${r.open_safety ? 'crit' : ''}">${r.open} open${r.open_safety ? ` · ${r.open_safety} safety` : ''}</span>
-      <b>${esc(r.label)}</b><span>${esc(r.dept)} · ${esc(r.id === 'WARD' ? 'whole ward' : r.id)}</span></button>`).join('');
+      <b>${esc(roleName(r))}</b><span class="n ${r.open_safety ? 'crit' : ''}">${esc(t().open(r.open))}${r.open_safety ? ` · ${esc(t().safety(r.open_safety))}` : ''}</span></button>`).join('');
     feed.append(h(`<div class="pick">
-      <h1>Who's speaking?</h1>
-      <p>Answers, priorities and patterns follow your post's responsibilities in the GCC records. You can also say “As the Assistant Engineer (Electrical)…”.</p>
-      <h2>In the field</h2><div class="roles">${group('field')}</div>
-      <h2>Leadership</h2><div class="roles">${group('leadership')}${group('ward')}</div>
+      <h1>${esc(t().who)}</h1><p>${esc(t().whoSub)}</p>
+      <h2>${esc(t().field)}</h2><div class="roles">${group('field')}</div>
+      <h2>${esc(t().lead)}</h2><div class="roles">${group('leadership')}${group('ward')}</div>
     </div>`));
   }
 
@@ -249,12 +283,27 @@
     const r = roleOf(roleId);
     if (!r) return showRolePicker();
     feed.innerHTML = '';
-    const chips = (CHIPS[r.kind] || CHIPS.field).map(([l, s]) => `<button data-say="${esc(s)}">${esc(l)}</button>`).join('');
+    const chips = ((CHIPS[r.kind] || CHIPS.field)[lang]).map(([l, q]) => `<button data-say="${esc(q)}">${esc(l)}</button>`).join('');
     feed.append(h(`<div class="hello">
-      <span class="eyebrow">${esc(r.post)}</span>
-      <h1>${r.open ? `${r.open} open on your desk${r.open_safety ? `, ${r.open_safety} safety risk` : ''}.` : 'Nothing open on your desk.'}</h1>
-      <p>Tap the mic and speak, or type. Every answer comes from GCC records; every action waits for your “confirm”.</p>
-      <div class="chips">${chips}</div></div>`));
+      <h1>${esc(t().desk(r.open, r.open_safety))}</h1>
+      <button class="talk" data-act="call" ${voiceStatus.ready ? '' : 'aria-disabled="true"'}>${MIC_SVG}</button>
+      <p class="talk-label"><b>${esc(t().tap)}</b><span>English · தமிழ் · हिंदी</span></p>
+      <p class="or">${esc(t().orAsk)}</p><div class="chips">${chips}</div></div>`));
+  }
+
+  // switch the screen's language; re-draw the home or picker if one is showing
+  function setLang(l) {
+    if (!LANGS.includes(l)) return;
+    const changed = l !== lang;
+    lang = l; store.set('lang', l);
+    document.documentElement.lang = l;
+    input.placeholder = t().type;
+    $('#endBtn').textContent = t().end;
+    $('#historyTitle').textContent = t().history;
+    const r = roleOf(roleId); if (r) pill.textContent = roleName(r);
+    renderStatus();
+    if (changed && $('.hello', feed)) showHello();
+    else if (changed && $('.pick', feed)) showRolePicker();
   }
 
   // ── conversations (server-side history) ────────────────────────────────
@@ -280,10 +329,12 @@
       el.classList.add('past');
       $('.say', el).textContent = t.reply || '';
       for (const cd of t.cards || []) { const n = card(cd); if (n) $('.cards', el).append(n); }
-      $('.meta', el).textContent = `${fmtDate(t.created_at)} · ${t.route}${t.intent ? ' · ' + t.intent : ''}`;
+      $('.meta', el).textContent = fmtDate(t.created_at);
       feed.append(el);
     }
-    if (c.turns.length) feed.append(h(`<p class="divider">Resumed · ${esc(ago(c.updated_at))} — you can carry on where you left off</p>`));
+    const last = c.turns[c.turns.length - 1];
+    if (last && last.lang) setLang(last.lang);
+    if (c.turns.length) feed.append(h(`<p class="divider">${esc(t().resumed)} · ${esc(ago(c.updated_at))}</p>`));
     else showHello();
     scroll(true);
     return true;
@@ -291,23 +342,23 @@
 
   async function openHistory() {
     const sheet = $('#historySheet'), list = $('#historyList');
-    list.innerHTML = '<li class="note">Loading…</li>';
+    list.innerHTML = `<li class="note">${esc(t().loading)}</li>`;
     sheet.hidden = false;
     $('[data-act="close"]', sheet).focus();
     try {
       const { items } = await (await fetch(`${API}/api/conversations?device_id=${encodeURIComponent(DEVICE)}`)).json();
       list.innerHTML = items.length ? items.map((c) => `<li class="${c.id === convId ? 'on' : ''}">
         <button class="open" data-conv="${esc(c.id)}"><b>${esc(c.title || 'Conversation')}</b>
-        <span>${esc(roleOf(c.role_id)?.label || 'Ward 173')} · ${c.turns} turn${c.turns === 1 ? '' : 's'} · ${esc(ago(c.updated_at))}</span></button>
-        <button class="del" data-del="${esc(c.id)}" aria-label="Delete conversation">✕</button></li>`).join('') : '<li class="note">No conversations yet.</li>';
-    } catch (_) { list.innerHTML = '<li class="note">Couldn\'t load history.</li>'; }
+        <span>${esc(roleOf(c.role_id) ? roleName(roleOf(c.role_id)) : 'Ward 173')} · ${esc(ago(c.updated_at))}</span></button>
+        <button class="del" data-del="${esc(c.id)}" aria-label="Delete conversation">✕</button></li>`).join('') : `<li class="note">${esc(t().none)}</li>`;
+    } catch (_) { list.innerHTML = `<li class="note">${esc(t().offline)}</li>`; }
   }
   const closeHistory = () => { $('#historySheet').hidden = true; };
 
   // ── the turn (queued, never dropped) ───────────────────────────────────
   const queue = [];
   let busy = false;
-  const renderQueue = () => { const q = $('#queued'); q.hidden = !queue.length; q.textContent = queue.length ? `Queued: ${queue.map((x) => `“${x}”`).join(', ')}` : ''; };
+  const renderQueue = () => { const q = $('#queued'); q.hidden = !queue.length; q.textContent = queue.length ? `⏳ ${queue.map((x) => `“${x}”`).join(', ')}` : ''; };
   const turnEl = (text) => h(`<article class="turn"><div class="you"><p>${esc(text)}</p></div><div class="bot"><p class="say"></p><div class="cards"></div><p class="meta"></p></div></article>`);
 
   function send(text) {
@@ -324,12 +375,11 @@
     $('.hello', feed)?.remove(); $('.pick', feed)?.remove();
     const turn = turnEl(text);
     feed.append(turn); stick = true; scroll(true);
-    const sayEl = $('.say', turn), cardsEl = $('.cards', turn), metaEl = $('.meta', turn);
-    const t0 = performance.now();
+    const sayEl = $('.say', turn), cardsEl = $('.cards', turn);
     let said = '';
     try {
       const res = await fetch(`${API}/api/agent/turn`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, session_id: convId, role_id: roleId, device_id: DEVICE, lang: langSel.value }) });
+        body: JSON.stringify({ text, session_id: convId, role_id: roleId, device_id: DEVICE, lang }) });
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       const reader = res.body.getReader(), dec = new TextDecoder();
       let buf = '';
@@ -350,14 +400,14 @@
             const n = card(data); if (n) cardsEl.append(n);
           } else if (ev === 'done') {
             if (data.turn_id) seenTurns.add(data.turn_id);
-            metaEl.textContent = `${data.route}${data.intent ? ' · ' + data.intent : ''} · server ${data.latency_ms ?? '?'} ms · total ${Math.round(performance.now() - t0)} ms`;
             if (data.role && data.role !== roleId) setRole(data.role);
+            if (data.lang) setLang(data.lang);
           }
         }
         scroll();
       }
     } catch (err) {
-      said = "I couldn't reach the server. Check your connection and try again.";
+      said = t().noServer;
       sayEl.textContent = said;
     }
     busy = false;
@@ -383,66 +433,85 @@
     return d;
   };
 
+  // The agent's voice speaks one language. When the person switches, the brain says a short holding line and
+  // saves its answer; we restart the agent in the new language and it opens with that answer.
+  const agentUid = () => 10000000 + Math.floor(Math.random() * 89999999);
+  async function startAgent(l, greetTurnId) {
+    const started = await api('/api/voice/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel: call.channel, agent_uid: agentUid(), user_uid: call.uid, session_id: convId, role_id: roleId,
+        device_id: DEVICE, lang: l, ...(greetTurnId ? { greet_turn_id: greetTurnId } : {}) }) });
+    call.agentId = started.agent_id; call.lang = l;
+    return started;
+  }
+  const stopAgent = (id) => id && api('/api/voice/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: id }) }).catch(() => {});
+
+  async function switchLanguage(l, turnId) {
+    if (!call || call.switching) return;
+    call.switching = true;
+    setLang(l); callState(t().switching);
+    const old = call.agentId; call.agentId = null;
+    await stopAgent(old);
+    try { if (call) await startAgent(l, turnId); } catch (err) { if (call) callState(t().failed); }
+    if (call) call.switching = false;
+  }
+
   async function startCall() {
     if (call) return;
-    if (!voiceStatus.ready) { status(`Voice calls need: ${voiceStatus.missing.join(', ')}`, true); return; }
+    if (!voiceStatus.ready) { status(t().voiceOff, true); return; }
     if (!convId) { convId = 'c-' + uid(); store.set('conv', convId); }
     $('.hello', feed)?.remove(); $('.pick', feed)?.remove();
-    call = { agentId: null, client: null, mic: null, poll: null };
-    document.body.classList.add('in-call'); $('#callbar').hidden = false; callState('Connecting…');
-    mic.classList.add('live'); mic.setAttribute('aria-pressed', 'true'); mic.setAttribute('aria-label', 'End voice call');
+    call = { agentId: null, client: null, mic: null, poll: null, lang, switching: false };
+    document.body.classList.add('in-call'); $('#callbar').hidden = false; callState(t().connecting);
+    mic.classList.add('live'); mic.setAttribute('aria-pressed', 'true'); mic.setAttribute('aria-label', t().end);
     try {
       await loadScript(RTC_SDK);
       const cfg = await api(`/api/voice/config?session_id=${encodeURIComponent(convId)}`);
-      const started = await api('/api/voice/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel: cfg.channel, agent_uid: cfg.agent_uid, user_uid: cfg.uid, session_id: convId, role_id: roleId, device_id: DEVICE, voice: $('#voice').value, lang: langSel.value }) });
-      $('#callVoice').textContent = `Agora · Murf Falcon 2.1 · ${started.voice}`;
-      call.agentId = started.agent_id;
+      call.channel = cfg.channel; call.uid = cfg.uid;
       const client = window.AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
       call.client = client;
       client.on('user-published', async (user, mediaType) => {
         await client.subscribe(user, mediaType);
-        if (mediaType === 'audio') { user.audioTrack.play(); callState('Live — speak naturally'); }
+        if (mediaType === 'audio') { user.audioTrack.play(); callState(t().listening); }
       });
-      client.on('user-left', () => callState('Agent left the call'));
       await client.join(cfg.app_id, cfg.channel, cfg.token, cfg.uid);
       call.mic = await window.AgoraRTC.createMicrophoneAudioTrack({ AEC: true, ANS: true, AGC: true });
       await client.publish([call.mic]);
-      callState('Agent joining…');
+      await startAgent(lang);
       call.poll = setInterval(pollTurns, 1500);
-      feed.append(h(`<p class="divider">Voice call started · ${esc(started.greeting)}</p>`)); scroll(true);
+      feed.append(h(`<p class="divider">${esc(t().started)}</p>`)); scroll(true);
     } catch (err) {
-      feed.append(h(`<p class="divider" style="color:var(--crit)">Call failed: ${esc(err.message)}. Browser voice and typing still work.</p>`));
-      await endCall();
+      feed.append(h(`<p class="divider bad">${esc(t().failed)}</p>`));
+      await endCall({ quiet: true });
     }
   }
 
-  async function endCall() {
+  async function endCall({ quiet } = {}) {
     const c = call; if (!c) return;
     call = null;
     clearInterval(c.poll);
     document.body.classList.remove('in-call'); $('#callbar').hidden = true;
-    mic.classList.remove('live'); mic.setAttribute('aria-pressed', 'false'); mic.setAttribute('aria-label', 'Start voice call');
+    mic.classList.remove('live'); mic.setAttribute('aria-pressed', 'false'); mic.setAttribute('aria-label', t().tap);
     try { if (c.mic) { c.mic.stop(); c.mic.close(); } } catch (_) {}
     try { if (c.client) await c.client.leave(); } catch (_) {}
-    if (c.agentId) api('/api/voice/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: c.agentId }) }).catch(() => {});
-    feed.append(h('<p class="divider">Call ended · the transcript and actions are saved in History</p>')); scroll(true);
+    stopAgent(c.agentId);
+    if (!quiet) { feed.append(h(`<p class="divider">${esc(t().ended)}</p>`)); scroll(true); }
   }
 
   async function pollTurns() {
     if (!call || !convId) return;
     try {
       const c = await api(`/api/conversations/${encodeURIComponent(convId)}?device_id=${encodeURIComponent(DEVICE)}`);
-      for (const t of c.turns) {
-        if (seenTurns.has(t.id)) continue;
-        seenTurns.add(t.id);
-        const el = turnEl(t.text);
+      for (const tn of c.turns) {
+        if (seenTurns.has(tn.id)) continue;
+        seenTurns.add(tn.id);
+        const el = turnEl(tn.text);
         el.classList.add('voice');
-        $('.say', el).textContent = t.reply || '';
-        for (const cd of t.cards || []) { const n = card(cd); if (n) $('.cards', el).append(n); }
-        $('.meta', el).textContent = `voice · ${t.route}${t.intent ? ' · ' + t.intent : ''} · server ${t.latency_ms ?? '?'} ms`;
+        $('.say', el).textContent = tn.reply || '';
+        for (const cd of tn.cards || []) { const n = card(cd); if (n) $('.cards', el).append(n); }
         feed.append(el);
-        if (t.role_id && t.role_id !== roleId) setRole(t.role_id);
+        if (tn.role_id && tn.role_id !== roleId) setRole(tn.role_id);
+        if (call && tn.lang && tn.lang !== call.lang) switchLanguage(tn.lang, tn.id);
+        else if (tn.lang) setLang(tn.lang);
         scroll();
       }
     } catch (_) { /* transient; next tick retries */ }
@@ -473,23 +542,6 @@
     else if (act === 'roles') showRolePicker();
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeHistory(); });
-  const voiceSel = $('#voice');
-  const langSel = $('#lang');
-  function applyLang() {
-    const ta = langSel.value === 'ta';
-    document.documentElement.lang = ta ? 'ta' : 'en';
-    const abhinav = voiceSel.querySelector('option[value="abhinav"]');
-    abhinav.disabled = ta;
-    abhinav.textContent = ta ? 'Abhinav (English only)' : 'Abhinav';
-    if (ta && voiceSel.value === 'abhinav') voiceSel.value = 'anisha';
-    input.placeholder = ta ? 'தட்டச்சு செய்யுங்கள், அல்லது மைக்கைத் தட்டிப் பேசுங்கள்…' : 'Type, or tap the mic to talk…';
-  }
-  if (['anisha', 'abhinav'].includes(store.get('voice'))) voiceSel.value = store.get('voice');
-  if (['en', 'ta'].includes(store.get('lang'))) langSel.value = store.get('lang');
-  voiceSel.addEventListener('change', () => store.set('voice', voiceSel.value));
-  langSel.addEventListener('change', () => { store.set('lang', langSel.value); applyLang(); });
-  applyLang();
-
   // ── theme (as app.publyq.in: light by default, an explicit choice is remembered) ──
   function setTheme(theme) {
     document.documentElement.dataset.theme = theme;
@@ -500,27 +552,31 @@
   if (document.documentElement.dataset.theme === 'dark') $('.theme-btn').setAttribute('aria-label', 'Switch to light mode');
 
   // ── boot ───────────────────────────────────────────────────────────────
-  function status(text, bad) { statusEl.textContent = text; statusEl.className = 'status' + (bad ? ' bad' : ''); }
+  let statusNote = null;   // a problem worth showing; otherwise the plain ward line
+  function status(text, bad) { statusNote = bad ? text : null; renderStatus(); }
+  function renderStatus() {
+    const txt = statusNote || (health && !health.ok ? t().offline : health ? t().footer(health.complaints) : '');
+    statusEl.textContent = txt; statusEl.className = 'hint' + (statusNote || (health && !health.ok) ? ' bad' : '');
+  }
   (async () => {
     try {
       const [hRes, rRes, vRes] = await Promise.all([fetch(`${API}/api/health`), fetch(`${API}/api/roles`), fetch(`${API}/api/voice/status`)]);
-      const hd = await hRes.json();
+      health = await hRes.json();
       voiceStatus = await vRes.json().catch(() => voiceStatus);
       mic.setAttribute('aria-disabled', String(!voiceStatus.ready));
-      mic.title = voiceStatus.ready ? 'Talk to GCC Publyq (Agora voice, Murf Falcon 2.1)' : `Voice not configured: ${voiceStatus.missing.join(', ')}`;
       roles = (await rRes.json()).roles;
-      status(hd.ok ? `${hd.complaints} records · ${voiceStatus.llm ? 'Claude on' : 'no LLM key'} · Telegram ${voiceStatus.telegram ? 'on' : 'off'}` : 'database down', !hd.ok);
-    } catch (_) { status('offline', true); }
+    } catch (_) { health = { ok: false }; }
+    setLang(lang);
     const link = new URLSearchParams(location.search);
     if (link.has('role') || link.has('ask') || link.has('lang')) {
       history.replaceState(null, '', location.pathname);         // a link is applied once, then forgotten
-      if (['en', 'ta'].includes(link.get('lang'))) { langSel.value = link.get('lang'); store.set('lang', langSel.value); applyLang(); }
+      if (LANGS.includes(link.get('lang'))) setLang(link.get('lang'));
       if (roleOf(link.get('role'))) setRole(link.get('role'));
       convId = 'c-' + uid(); store.set('conv', convId);           // a fresh conversation for the link
       const ask = link.get('ask') || '';
       const open = ask.startsWith('open:') ? ask.slice(5).toUpperCase() : '';
       if (open && /^20\d{2}-\d{3,}[A-Z]{3}$/.test(open)) return send(`Open ${open}`);
-      if (ask === 'brief') return send(langSel.value === 'ta' ? 'இன்றைய காலை சுருக்கம் சொல்லுங்கள்' : 'Brief me');
+      if (ask === 'brief') return send({ ta: 'இன்றைய காலை சுருக்கம் சொல்லுங்கள்', hi: 'आज का सारांश बताइए', en: 'Brief me' }[lang]);
       return roleId ? showHello() : showRolePicker();
     }
     if (roleId && roleOf(roleId)) setRole(roleId); else roleId = null;

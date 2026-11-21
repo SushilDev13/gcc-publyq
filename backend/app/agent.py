@@ -19,6 +19,7 @@ import time
 from collections.abc import AsyncIterator
 
 from . import db, dbquery, llm, publyq
+from . import lang as L
 from . import roles as R
 from . import tools as T
 from .config import settings
@@ -174,6 +175,9 @@ LANGUAGE = {
            'IDs (2026-185OET), post IDs (AE-D173) and numbers exactly as written. Prefer the Tamil issue names stored '
            "in the records (complaints.raw->>'issue_ta'); everyday English office words like complaint or escalate are "
            'fine where Tamil speakers use them.'),
+    'hi': ('Reply in Hindi (Devanagari script), the plain spoken Hindi of a government office, not formal or '
+           'Sanskritised. Keep complaint IDs (2026-185OET), post IDs (AE-D173), street names and numbers exactly as '
+           'written; everyday English office words like complaint, escalate or follow-up are fine.'),
     'en': 'Reply in English.',
 }
 
@@ -191,8 +195,8 @@ def _system(ctx: dict, channel: str) -> list[dict]:
             {'type': 'text', 'text': dyn}]
 
 
-def _reply_events(reply: Reply, route_label: str):
-    yield 'route', {'route': route_label, 'intent': reply.intent}
+def _reply_events(reply: Reply, route_label: str, lang: str):
+    yield 'route', {'route': route_label, 'intent': reply.intent, 'lang': lang}
     for c in reply.cards:
         yield 'card', c
     yield 'delta', {'text': reply.say}
@@ -205,8 +209,8 @@ async def run_turn(text: str, session_id: str, channel: str = 'web', role_id: st
     ctx, history = await asyncio.to_thread(load_ctx, session_id)
     if role_id in R.BY_ID:  # explicit choice in the UI wins over the remembered one
         ctx['role'] = role_id
-    if lang in LANGUAGE:
-        ctx['lang'] = lang
+    # The person's words decide the language, every turn; `lang` is only the language in use before this turn.
+    ctx['lang'] = L.detect(text, ctx.get('lang') or lang)
 
     try:
         reply, body, new_role = await asyncio.to_thread(control, text, ctx, session_id)
@@ -225,7 +229,7 @@ async def run_turn(text: str, session_id: str, channel: str = 'web', role_id: st
         route_label = 'fallback'
 
     if reply:
-        for ev in _reply_events(reply, route_label):
+        for ev in _reply_events(reply, route_label, ctx['lang']):
             yield ev
         new_ctx = _next_ctx(ctx, reply.focus, reply.ids, reply.cards)
         if reply.role:
@@ -234,11 +238,11 @@ async def run_turn(text: str, session_id: str, channel: str = 'web', role_id: st
         tid = await asyncio.to_thread(save_turn, session_id, channel, text, route_label, reply.intent, reply.tools,
                                       reply.say, new_ctx, ms, reply.cards, device_id)
         yield 'done', {'turn_id': tid, 'route': route_label, 'intent': reply.intent, 'latency_ms': ms,
-                       'focus': new_ctx.get('focus'), 'role': new_ctx.get('role')}
+                       'focus': new_ctx.get('focus'), 'role': new_ctx.get('role'), 'lang': ctx['lang']}
         return
 
     # ── Claude ──
-    yield 'route', {'route': 'llm'}
+    yield 'route', {'route': 'llm', 'lang': ctx['lang']}
     role = R.BY_ID.get(ctx.get('role') or '', R.BY_ID[R.WARD])
     scope = R.scope(role['id'])
     system = _system(ctx, channel)
@@ -332,4 +336,4 @@ async def run_turn(text: str, session_id: str, channel: str = 'web', role_id: st
     tid = await asyncio.to_thread(save_turn, session_id, channel, text, route_, None, used, said, new_ctx, ms,
                                   cards, device_id)
     yield 'done', {'turn_id': tid, 'route': route_, 'latency_ms': ms, 'first_token_ms': first_token_ms,
-                   'tools': used, 'focus': new_ctx.get('focus'), 'role': new_ctx.get('role')}
+                   'tools': used, 'focus': new_ctx.get('focus'), 'role': new_ctx.get('role'), 'lang': ctx['lang']}

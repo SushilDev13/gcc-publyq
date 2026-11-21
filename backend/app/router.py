@@ -18,6 +18,10 @@ CONFIRM = re.compile(r"^\s*(yes|yeah|yep|confirm(ed)?|go ahead|do it|proceed|ok(
 TA_CONFIRM = {'சரி', 'ஆமாம்', 'ஆம்', 'உறுதி', 'உறுதி செய்', 'உறுதி செய்யுங்கள்', 'உறுதிப்படுத்து',
               'உறுதிப்படுத்துங்கள்', 'கன்ஃபர்ம்', 'ஓகே', 'செய்யுங்கள்', 'சரி செய்யுங்கள்'}
 TA_CANCEL = {'வேண்டாம்', 'ரத்து', 'ரத்து செய்', 'ரத்து செய்யுங்கள்', 'கேன்சல்', 'நிறுத்து'}
+# Spoken Hindi, as a Hindi call transcribes it (whole utterance only).
+HI_CONFIRM = {'हाँ', 'हां', 'हाँ जी', 'हां जी', 'ठीक है', 'हाँ ठीक है', 'हां ठीक है', 'कन्फर्म', 'कन्फर्म करो',
+              'कन्फर्म कीजिए', 'पक्का', 'कर दो', 'कर दीजिए', 'ओके', 'सही है'}
+HI_CANCEL = {'नहीं', 'नही', 'रद्द', 'रद्द करो', 'रद्द कीजिए', 'कैंसल', 'कैंसल करो', 'मत करो', 'रहने दो', 'रुको'}
 
 
 def _ta(raw: str) -> str:
@@ -110,9 +114,9 @@ def control(text: str, ctx: dict, session_id: str | None) -> tuple[Reply | None,
                 rest, new_role)
     body = rest if new_role else text
     raw = body.strip()
-    if _ta(raw) in TA_CONFIRM:
+    if _ta(raw) in TA_CONFIRM | HI_CONFIRM:
         body, raw = 'confirm', 'confirm'
-    elif _ta(raw) in TA_CANCEL:
+    elif _ta(raw) in TA_CANCEL | HI_CANCEL:
         body, raw = 'cancel', 'cancel'
     if CONFIRM_ID.match(raw) or CONFIRM.match(raw) or CANCEL.match(raw):
         reply = _route(body, {**ctx, 'role': role_id}, session_id)
