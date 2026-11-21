@@ -79,6 +79,20 @@ Neon Postgres via the Vercel integration (`NEON_DATABASE_URL`), DNS CNAME at Spa
 | Outbound | Telegram group "Publyq Ward 173" via @Publyqbot; every message logged in `communications` |
 | Data | All CSVs in Postgres (local and Neon); media bytes stay in object storage, served from source URLs |
 
+### Morning brief + Tamil
+
+- **07:00 IST every day** Vercel Cron calls `GET /api/cron/morning-brief` (signed with `CRON_SECRET`); the
+  brief posts once per day to the Ward 173 Telegram group and is logged in `communications`
+  (`kind='morning_brief'`). Preview without sending: `?dry_run=true`. Language: `BRIEF_LANG` (`ta` default) or
+  `?lang=en`.
+- It's deterministic (no LLM): per field post, the most dangerous, oldest and recurring open complaint; for
+  leadership, the post carrying most open work, untouched count, complaints without an owner, follow-ups due.
+- Every complaint ID and "talk it through" link opens `gcc.publyq.in/?role=…&lang=…&ask=…`, i.e. GCC Publyq
+  in that role and language with the question already asked.
+- **Tamil voice:** pick தமிழ் next to the mic. ARES `ta-IN` → Claude answers in Chennai-office Tamil → Murf
+  Falcon 2.1 Anisha `ta-IN` (Abhinav is English-only). Spoken சரி / ஆமாம் / வேண்டாம் confirm or cancel
+  deterministically.
+
 ### Publyq integration (app.publyq.in)
 
 GCC Publyq doesn't rebuild Publyq's analytics. It deep-links into them, because Publyq keeps its whole
