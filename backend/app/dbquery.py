@@ -16,7 +16,7 @@ from decimal import Decimal
 
 from psycopg import errors
 
-from . import db
+from . import db, publyq
 
 MAX_ROWS = 50
 MAX_CHARS = 8000
@@ -96,4 +96,6 @@ def run(sql: str) -> dict:
     text = json.dumps(data, default=str)
     if len(text) > MAX_CHARS:
         text, truncated = text[:MAX_CHARS], True
-    return {'columns': cols, 'row_count': len(data), 'truncated': truncated, 'rows_json': text}
+    found = [v for r in data for v in r.values() if isinstance(v, str) and publyq.COMPLAINT_ID.match(v)]
+    return {'columns': cols, 'row_count': len(data), 'truncated': truncated, 'rows_json': text,
+            'publyq': publyq.complaints(found)}

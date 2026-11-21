@@ -11,6 +11,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from . import db
+from . import publyq as PQ
 from .config import settings
 from .text import toks
 
@@ -141,7 +142,10 @@ def search_complaints(status_group: str | None = 'open', locality: str | None = 
             ORDER BY c.is_safety_risk DESC, c.is_overdue DESC, c.urgency_score DESC NULLS LAST,
                      c.complaint_date {'ASC' if status_group == 'open' else 'DESC'}
             LIMIT %(lim)s""", p)
-    return {'total': total, 'items': [brief(c) for c in items],
+    all_ids = [r['id'] for r in db.fetchall(
+        f'''SELECT c.id FROM complaints c WHERE {w}
+            ORDER BY c.is_safety_risk DESC, c.is_overdue DESC, c.complaint_date LIMIT 101''', p)]
+    return {'total': total, 'items': [brief(c) for c in items], 'publyq': PQ.complaints(all_ids),
             'filters': {k: v for k, v in dict(status_group=status_group, locality=locality, issue_group=issue_group,
                                                complaint_type=complaint_type, safety=safety, overdue=overdue, q=q,
                                                holder_post_id=holder_post_id).items() if v is not None}}
@@ -228,6 +232,7 @@ def get_complaint(complaint_id: str) -> dict:
         'media': [{'url': media_url(m['file'], m['source_url']), 'kind': m['kind'], 'uploader': m['uploader'],
                    'stage': m['stage']} for m in media if not m['duplicate_of']],
         'sop': _sop_view(sop), 'responsible': responsible(c, sop), 'repeats': repeats, 'actions': actions,
+        'publyq': PQ.complaint(cid),
     })
     return out
 
@@ -299,14 +304,22 @@ def ward_summary(ward_no: int | None = None) -> dict:
     by = lambda col: db.fetchall(  # noqa: E731
         f"""SELECT {col} AS key, count(*) n FROM complaints WHERE status_group='open'
             GROUP BY 1 ORDER BY 2 DESC LIMIT 6""")
+    groups = db.fetchall("""SELECT issue_group AS key, issue_group_id, count(*) n FROM complaints
+                           WHERE status_group='open' GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 6""")
+    for g in groups:
+        g['publyq'] = PQ.view(category=g.pop('issue_group_id'), status='open', label=f"Open {g['key']} in Publyq")
     holders = db.fetchall("""SELECT c.holder_post_id post_id, o.post, count(*) n,
                                     o.typical_hours_to_first_action
                              FROM complaints c LEFT JOIN officials o ON o.post_id = c.holder_post_id
                              WHERE c.status_group='open' GROUP BY 1,2,4 ORDER BY 3 DESC LIMIT 5""")
     due = list_actions(status='confirmed', kind='follow_up', due_only=True)['items']
     tot['data_as_of'] = tot['data_as_of'].isoformat() if tot['data_as_of'] else None
-    return {'ward_no': ward_no, **tot, 'open_by_issue': by('issue_group'), 'open_by_locality': by('locality'),
-            'open_by_holder': [_num(h) for h in holders], 'follow_ups_due': len(due)}
+    return {'ward_no': ward_no, **tot, 'open_by_issue': groups, 'open_by_locality': by('locality'),
+            'open_by_holder': [_num(h) for h in holders], 'follow_ups_due': len(due),
+            'publyq_links': {'safety': PQ.view(safety=True, status='open', label='Open safety risks in Publyq'),
+                             'overdue': PQ.view(overdue=True, status='open', label='Overdue in Publyq'),
+                             'open': PQ.view(status='open', label=f'All open in Ward {ward_no}'),
+                             'map': PQ.ward_map(ward_no), 'accountability': PQ.accountability(ward_no)}}
 
 
 # ── triage: classify free text against SOPs + similar real complaints ─────
@@ -354,7 +367,8 @@ def triage(text: str) -> dict:
     tier = sop['priority_tier'] if sop else None
     if safety_words and sop and tier != 'P1':
         tier = f"P1 (make-safe step; full repair stays {sop['priority_tier']})"
-    return {'text': text, 'confident': conf >= 0.5, 'confidence': round(conf, 2), 'complaint_type': ctype,
+    return {'publyq': PQ.complaints([d['id'] for d in dupes]),
+            'text': text, 'confident': conf >= 0.5, 'confidence': round(conf, 2), 'complaint_type': ctype,
             'locality': loc, 'safety_signal': safety_words.group(0) if safety_words else None,
             'priority': tier, 'sop': _sop_view(sop), 'owner': owner, 'possible_duplicates': dupes,
             'say': f"Looks like {ctype.lower()}" + (f' in {loc}' if loc else '') +
@@ -649,7 +663,7 @@ def patterns(scope: list[str] | None = None, role_label: str = 'Ward 173') -> di
               count(*) FILTER (WHERE status_group='open') open,
               count(*) FILTER (WHERE recurred_after_fix) came_back,
               min(complaint_date)::date first_seen, max(complaint_date)::date last_seen,
-              (array_agg(id ORDER BY complaint_date DESC))[1:5] ids
+              array_agg(id ORDER BY complaint_date DESC) all_ids
             FROM complaints WHERE {w} AND street IS NOT NULL
             GROUP BY issue, street, locality HAVING count(*) >= 2
             ORDER BY count(*) DESC, count(*) FILTER (WHERE status_group='open') DESC LIMIT 6""", p)
@@ -657,8 +671,16 @@ def patterns(scope: list[str] | None = None, role_label: str = 'Ward 173') -> di
               count(*) FILTER (WHERE complaint_date > now() - interval '90 days') last_90d,
               count(*) FILTER (WHERE complaint_date <= now() - interval '90 days'
                                  AND complaint_date > now() - interval '180 days') prev_90d,
-              count(*) FILTER (WHERE status_group='open') open
+              count(*) FILTER (WHERE status_group='open') open,
+              array_agg(id ORDER BY complaint_date DESC) all_ids
             FROM complaints WHERE {w} GROUP BY issue ORDER BY count(*) DESC LIMIT 6""", p)
+    for s in spots:
+        ids = s.pop('all_ids')
+        s['ids'], s['publyq'] = ids[:5], PQ.complaints(ids)
+    for i in issues:
+        ids = i.pop('all_ids')
+        i['publyq'] = (PQ.complaints(ids) if len(ids) <= PQ.MAX_IDS else
+                       PQ.view(issue=i['issue'], label=f"All {i['issue']} in Ward 173 (Publyq)"))
     tot = db.fetchone(f"""SELECT count(*) n, count(*) FILTER (WHERE recurred_after_fix) came_back,
               percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM last_activity_at - complaint_date)/86400)
                 FILTER (WHERE status_group='resolved' AND last_activity_at IS NOT NULL) median_days_to_close
@@ -685,4 +707,5 @@ def patterns(scope: list[str] | None = None, role_label: str = 'Ward 173') -> di
     md = float(tot['median_days_to_close']) if tot['median_days_to_close'] is not None else None
     return {'role': role_label, 'total': tot['n'], 'came_back': tot['came_back'], 'median_days_to_close': md,
             'spots': [{**s, 'first_seen': str(s['first_seen']), 'last_seen': str(s['last_seen'])} for s in spots],
-            'issues': issues, 'months': months, 'say': '. '.join(parts) + '.'}
+            'issues': issues, 'months': months, 'say': '. '.join(parts) + '.',
+            'publyq_links': {'map': PQ.ward_map()}}

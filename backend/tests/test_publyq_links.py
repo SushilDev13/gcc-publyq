@@ -43,3 +43,19 @@ def test_rejects_unknown_status():
     import pytest
     with pytest.raises(ValueError):
         P.view(status='closed')
+
+
+def test_tools_carry_publyq_links():
+    from backend.app import dbquery, roles as R, tools as T
+    s = T.search_complaints(safety=True, limit=5)
+    assert s['publyq']['count'] == s['total'] == 26                     # whole matching set, not the 5 shown
+    assert T.get_complaint('2026-185OET')['publyq']['url'].endswith('ids=2026-185OET&id=2026-185OET')
+    spot = T.patterns(R.scope('AEL-D173'), 'x')['spots'][0]
+    assert spot['publyq']['count'] == spot['n'] and len(spot['ids']) <= 5
+    debris = next(i for i in T.patterns(R.scope('AE-D173'), 'x')['issues'] if i['issue'] == 'Debris removal')
+    assert 'type=Debris+removal' in debris['publyq']['url']             # >100 ids -> ward-wide filter
+    w = T.ward_summary()
+    assert all('category=' in g['publyq']['url'] for g in w['open_by_issue'])
+    assert w['publyq_links']['safety']['url'].endswith('status=open&safety=1')
+    assert dbquery.run("select id from complaints where id = '2026-185OET'")['publyq']['count'] == 1
+    assert dbquery.run('select count(*) from complaints')['publyq'] is None
