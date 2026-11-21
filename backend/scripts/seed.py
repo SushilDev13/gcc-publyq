@@ -232,6 +232,7 @@ def main() -> None:
             n_media += cur.rowcount
         db.commit()
 
+        cur.execute("UPDATE complaints SET issue_group_id = nullif(raw->>'issue_group_id', '')")
         # owner post per complaint type (SOP owner role -> the ward's post for it)
         from backend.app.tools import owner_post
         cur.execute('SELECT DISTINCT c.complaint_type, s.owner_role, c.ward_no FROM complaints c '

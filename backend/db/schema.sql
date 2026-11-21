@@ -270,3 +270,6 @@ DO $$ BEGIN
   EXECUTE format('GRANT gcc_reader TO %I', current_user);
 EXCEPTION WHEN others THEN NULL;  -- already granted / insufficient privilege: SET ROLE will report it
 END $$;
+
+-- Publyq's category key (e.g. 'debris'), used to deep-link into app.publyq.in
+ALTER TABLE complaints ADD COLUMN IF NOT EXISTS issue_group_id text;
