@@ -10,7 +10,9 @@ ROOT = Path(__file__).resolve().parents[2]
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ROOT / '.env', extra='ignore', env_ignore_empty=True)
 
-    database_url: str = 'postgresql://gcc@localhost:5444/gcc'
+    # Vercel's Neon integration injects NEON_DATABASE_URL (pooled); DATABASE_URL wins when both exist
+    database_url: str = Field('postgresql://gcc@localhost:5444/gcc',
+                              validation_alias=AliasChoices('DATABASE_URL', 'NEON_DATABASE_URL'))
     db_pool_max: int = 4
 
     # Claude (the brain): official Anthropic SDK
