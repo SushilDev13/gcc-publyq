@@ -54,6 +54,9 @@
     c.status_group === 'resolved' ? '<span class="tag pos">resolved</span>' : '',
     c.hotspot_tier === 'recurring' ? '<span class="tag info">recurring spot</span>' : '',
   ].join('');
+  // Deep link into app.publyq.in (built server-side; only https://app.publyq.in/ is accepted)
+  const pq = (link, cls = '') => (link && /^https:\/\/app\.publyq\.in\//.test(link.url))
+    ? `<a class="pq ${cls}" href="${esc(link.url)}" target="_blank" rel="noopener">${esc(link.label || 'Open in Publyq')}${link.truncated ? ' (first 100)' : ''} ↗</a>` : '';
   const post = (p) => p ? `<span title="${esc(p.post_id)}">${esc(p.post)}</span>` : '<span>—</span>';
   const rows = (items) => items.map((i) => `<li><button data-say="Open ${esc(i.id)}">
       <span class="id">${esc(i.id)}</span>
@@ -69,23 +72,25 @@
         <div class="stats"><span><b>${q.total}</b> open</span><span><b>${s.open_safety ?? 0}</b> safety</span><span><b>${s.open_untouched ?? 0}</b> untouched</span>
         <span><b>${s.resolved_90d ?? 0}</b> resolved (90 d)</span>${s.open_unowned ? `<span><b>${s.open_unowned}</b> no owner post</span>` : ''}</div>
         ${q.items.length ? `<ul class="rows">${rows(q.items)}</ul>` : '<p class="note">Nothing open in your scope in the GCC records.</p>'}
-        ${q.total > q.items.length ? `<p class="note">Showing ${q.items.length} of ${q.total}, most urgent first.</p>` : ''}</div>`;
+        ${q.total > q.items.length ? `<p class="note">Showing ${q.items.length} of ${q.total}, most urgent first.</p>` : ''}
+        ${pq(q.publyq)}</div>`;
     },
     patterns(p) {
       if (!p.total) return `<div class="card"><h3>Patterns</h3><p class="note">${esc(p.say)}</p></div>`;
       const max = Math.max(...p.issues.map((i) => i.n), 1);
       const spots = p.spots.map((s) => `<li><b>${esc(s.issue)}</b> · ${esc(s.street)}
         <div class="s">${s.n} complaints${s.open ? ` · <span class="tag warn">${s.open} open</span>` : ''}${s.came_back ? ` · <span class="tag crit">${s.came_back} came back after fix</span>` : ''} · ${esc(s.first_seen)} → ${esc(s.last_seen)}</div>
-        <div class="act" style="margin-top:6px">${(s.ids || []).slice(0, 3).map((id) => `<button data-say="Open ${esc(id)}">${esc(id)}</button>`).join('')}</div></li>`).join('');
-      const bars = p.issues.map((i) => `<div class="bar"><span>${esc(i.issue)}</span><i style="width:${Math.max(4, (i.n / max) * 100)}%"></i><em>${i.n}${i.open ? ` · ${i.open} open` : ''} · ${i.last_90d} in 90 d</em></div>`).join('');
+        <div class="act" style="margin-top:6px">${(s.ids || []).slice(0, 3).map((id) => `<button data-say="Open ${esc(id)}">${esc(id)}</button>`).join('')}${pq(s.publyq ? { ...s.publyq, label: `All ${s.n} in Publyq` } : null, 'inline')}</div></li>`).join('');
+      const bars = p.issues.map((i) => `<${i.publyq ? `a href="${esc(i.publyq.url)}" target="_blank" rel="noopener" title="${esc(i.publyq.label)}"` : 'div'} class="bar"><span>${esc(i.issue)}${i.publyq ? ' ↗' : ''}</span><i style="width:${Math.max(4, (i.n / max) * 100)}%"></i><em>${i.n}${i.open ? ` · ${i.open} open` : ''} · ${i.last_90d} in 90 d</em></${i.publyq ? 'a' : 'div'}>`).join('');
       return `<div class="card"><h3>Recurring patterns · ${esc(p.role)}</h3>
         <div class="stats"><span><b>${p.total}</b> complaints in 2026</span><span><b>${p.came_back}</b> came back after fix</span>
         ${p.median_days_to_close != null ? `<span><b>${p.median_days_to_close.toFixed(1)}</b> median days to close</span>` : ''}</div>
         ${spots ? `<h4>Repeat spots</h4><ul class="spots">${spots}</ul>` : '<p class="note">No street has repeated complaints in your scope.</p>'}
-        <h4>Top issues</h4><div class="bars">${bars}</div></div>`;
+        <h4>Top issues <span class="note">· tap to open in Publyq</span></h4><div class="bars">${bars}</div>
+        ${pq((p.publyq_links || {}).map)}</div>`;
     },
     complaint_list(c) {
-      return `<div class="card"><h3>${c.total} complaint${c.total === 1 ? '' : 's'}${c.total > c.items.length ? ` · showing ${c.items.length}` : ''}</h3><ul class="rows">${rows(c.items) || '<li class="note">None</li>'}</ul></div>`;
+      return `<div class="card"><h3>${c.total} complaint${c.total === 1 ? '' : 's'}${c.total > c.items.length ? ` · showing ${c.items.length}` : ''}</h3><ul class="rows">${rows(c.items) || '<li class="note">None</li>'}</ul>${pq(c.publyq)}</div>`;
     },
     complaint(c) {
       const r = c.responsible || {}, s = c.sop, pr = c.priority;
@@ -118,6 +123,7 @@
           ${c.status_group === 'open' ? `<button class="primary" data-say="Escalate ${esc(c.id)}">Escalate</button>
           <button data-say="Remind me about ${esc(c.id)} in 2 days">Follow up in 2 days</button>` : ''}
           <button data-say="Report for ${esc(c.id)}">Report</button>
+          ${pq(c.publyq, 'inline')}
           ${c.source_url ? `<a class="note" href="${esc(c.source_url)}" target="_blank" rel="noopener" style="align-self:center">GCC portal ↗</a>` : ''}
         </div>
         <p class="note">Data as of GCC portal fetch ${esc((c.data_as_of || '').slice(0, 10))}.</p>
@@ -177,7 +183,7 @@
         <dl class="kv"><dt>Priority</dt><dd>${esc(t.priority || '—')}</dd><dt>Owner</dt><dd>${t.owner ? esc(t.owner.post) : '—'}</dd>
         <dt>Locality</dt><dd>${esc(t.locality || 'not detected')}</dd><dt>Confidence</dt><dd>${Math.round((t.confidence || 0) * 100)}%${t.confident ? '' : ' · please check'}</dd>
         ${t.safety_signal ? `<dt>Safety signal</dt><dd><span class="tag crit">${esc(t.safety_signal)}</span></dd>` : ''}</dl>
-        ${d.length ? `<h4>Already reported? Open complaints at this spot</h4><ul class="rows">${rows(d)}</ul>` : ''}
+        ${d.length ? `<h4>Already reported? Open complaints at this spot</h4><ul class="rows">${rows(d)}</ul>${pq(t.publyq)}` : ''}
         ${t.sop ? `<h4>First check</h4><p>${esc(t.sop.diagnose[0] || '')}</p>` : ''}</div>`;
     },
     report(r) { return `<div class="card md">${md(r.markdown)}</div>`; },
@@ -188,6 +194,7 @@
       const body = data.slice(0, 20).map((r) => `<tr>${cols.map((c) => `<td>${esc(typeof r[c] === 'object' && r[c] !== null ? JSON.stringify(r[c]) : r[c])}</td>`).join('')}</tr>`).join('');
       return `<div class="card"><h3>Looked up in the records · ${q.row_count} row${q.row_count === 1 ? '' : 's'}${q.truncated ? ' (truncated)' : ''}</h3>
         <div class="tablewrap"><table class="data"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+        ${pq(q.publyq)}
         <details class="note"><summary>Query</summary><code>${esc(q.sql || '')}</code></details></div>`;
     },
     communications(c) {
@@ -195,7 +202,14 @@
         ${esc(m.recipient)} · ${esc(fmtDate(m.created_at))}${m.complaint_id ? ' · ' + esc(m.complaint_id) : ''}${m.error ? ` · <span class="note">${esc(m.error)}</span>` : ''}</li>`).join('');
       return `<div class="card"><h3>Telegram messages</h3><ul class="timeline">${li || '<li class="note">None sent yet.</li>'}</ul></div>`;
     },
-    summary(s) { return `<div class="card"><h3>Ward ${s.ward_no}</h3><p>${s.open} open · ${s.open_overdue} overdue · ${s.open_safety} safety risk</p></div>`; },
+    summary(s) {
+      const L = s.publyq_links || {};
+      const groups = (s.open_by_issue || []).map((g) => `<li>${pq(g.publyq ? { ...g.publyq, label: `${g.key} · ${g.n} open` } : null) || `${esc(g.key)} · ${g.n}`}</li>`).join('');
+      return `<div class="card"><h3>Ward ${s.ward_no}</h3><p>${s.open} open · ${s.open_overdue} overdue · ${s.open_safety} safety risk</p>
+        <div class="act">${pq(L.safety, 'inline')}${pq(L.overdue, 'inline')}${pq(L.map, 'inline')}${pq(L.accountability, 'inline')}</div>
+        ${groups ? `<h4>Open by issue group</h4><ul class="linklist">${groups}</ul>` : ''}</div>`;
+    },
+    publyq(l) { return `<div class="card"><h3>Publyq</h3>${pq(l, 'big')}<p class="note">Opens app.publyq.in in a new tab — the same GCC records, live analytics view.</p></div>`; },
   };
   const card = (c) => (R[c.type] ? h(R[c.type](c) || '<span hidden></span>') : null);
 
