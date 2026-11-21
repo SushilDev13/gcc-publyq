@@ -43,9 +43,13 @@ Actions:
 """ + dbquery.SCHEMA_GUIDE
 
 STYLE = {
-    'convoai': 'Your reply is spoken aloud by a text-to-speech voice: one to three short sentences, plain words, '
-               'no markdown, no lists, no symbols. Say complaint IDs as written.',
-    'web': 'Your reply appears in a chat beside detail cards: two to four sentences of plain text, no markdown tables.',
+    'convoai': ('Your reply is spoken aloud by a text-to-speech voice. If you need to look anything up, first say '
+                'a short natural acknowledgement such as "Let me check." so the caller is not left in silence. Then '
+                'answer in one to three short sentences of plain words: no markdown, no lists, no symbols. Say '
+                'complaint IDs as written. Offer the next step in a few words if one is useful.'),
+    'web': ('Your reply appears in a chat beside detail cards that already show the full data. If you need to look '
+            'anything up, start with a short acknowledgement such as "Let me check." Then answer in at most four '
+            'sentences of plain text: no markdown, no bold, no headings, no lists.'),
 }
 
 
