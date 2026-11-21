@@ -1,6 +1,6 @@
 # GCC Publyq
 
-**A voice assistant that helps Chennai Corporation staff get real work done on public complaints, hands-free, in English, Tamil or Hindi — it switches when you do.**
+**Talk to your ward's complaints. In English, Tamil or Hindi. It answers, and it gets the work done.**
 
 Live at **[gcc.publyq.in](https://gcc.publyq.in)** · Built for *Build with Agora (Bengaluru)*, Theme 2: *Voice AI at Work, Beyond the Call Center*
 
@@ -8,50 +8,58 @@ Live at **[gcc.publyq.in](https://gcc.publyq.in)** · Built for *Build with Agor
 
 ## The problem
 
-Citizens in Chennai report problems (broken drains, garbage, dangling cables) by tagging the Greater Chennai
-Corporation (GCC) on X. Each post becomes a complaint in GCC's portal. In Ward 173 (Adyar), the records show
-where things get stuck:
+Chennai residents report broken drains, garbage and dangling cables by tagging the Greater Chennai Corporation
+(GCC) on X. Each post becomes a complaint in GCC's portal. In Ward 173 (Adyar), the records show the work is stuck:
 
 - **90 of 96 open complaints have never been touched** by an officer.
 - **95 of 96 are past their deadline.**
-- **One post (the ward's Assistant Engineer) holds 80 of them**, and typically waits about 200 hours before acting.
+- **One post, the ward's Assistant Engineer, holds 80 of them**, and typically waits about 200 hours before acting.
 - **1 in 5 "fixed" complaints comes back.**
 
-The staff don't lack information. What's missing is a way to start the day knowing what matters, act on it
-quickly, and close the loop.
+The data exists. What's missing is a way for the person in the field to know, in their own language and without
+digging through a portal, *what matters today*, act on it, and close the loop.
 
-## What GCC Publyq does
+## First principles
 
-You **talk to it like a colleague**, by voice or text, and it does the work.
+We started from the user, not the data: a junior Assistant Engineer on a street, phone in one hand, switching
+between Tamil, English and Hindi. Everything follows from five rules.
 
-| You can… | For example |
+1. **Voice first.** Talking is the main way in. The home screen is one big mic button; typing is the backup.
+2. **Your work, not all the data.** Every answer is about *your* post: field staff see what they hold, leaders also see
+   what their team holds.
+3. **Facts come from records.** Every number, ID and post comes from GCC's own data. If the data can't answer, it says so.
+4. **People make the changes.** The assistant can only *propose* an action. Nothing is recorded or sent until you say
+   "confirm", and that word is checked by plain code, never by the AI.
+5. **Honest about limits.** GCC's portal can't be updated by outside apps, so actions are recorded here and shared on
+   Telegram, and the app says so.
+
+## What you can do
+
+| You say | It does |
 |---|---|
-| **Find information** | "What's urgent for me?" · "Show me complaint 185 OET" · "Who handles this?" |
-| **Solve problems** | It reads the standard procedure, works out who is responsible and who to escalate to, and spots repeat problems. |
-| **Automate routine work** | It sorts new reports by type, priority and owner, flags duplicates, writes reports, and sends a morning brief every day. |
-| **Finish whole tasks** | "Escalate it" → "Confirm" → it records the action, posts to the ward's Telegram group, and sets a follow-up. |
+| "What's on my plate?" | Your open complaints, most urgent first, with the reason |
+| "Open the first one" · "Show me 185 OET" | The full complaint: details, photos, officer actions, who holds it, who it escalates to |
+| "How do I fix this?" | GCC's standard procedure and the complaint's priority |
+| "What keeps coming back?" | Streets where the same problem returns after being "fixed" |
+| "A resident called about an open manhole near the school in Gandhi Nagar" | Type, priority, the post that owns it, and possible duplicates |
+| "Escalate it" → "Confirm" | Records the escalation, posts it to the ward's Telegram group, and sets a follow-up |
+| "Which street has the most open drain complaints?" | Writes its own read-only database query and answers |
 
-### It knows who you are
-Pick your post when you start (Assistant Engineer, Sanitary Inspector, Executive Engineer, …) or just say
-*"As the Assistant Engineer (Electrical)…"*. Every answer is about **your** work: field staff see what they hold,
-leaders also see everything their team holds.
+It can also **assign, add a note, set a follow-up, request a status change, request closure, or ask for help**,
+always as propose → confirm. Every morning at **7 am** a brief goes to the ward's Telegram group: for each officer,
+their most dangerous, oldest and recurring complaint, each one tap from the app.
 
-### A typical day
-1. **7:00 am:** a **morning brief** arrives in the ward's Telegram group, in Tamil. For each officer it lists the
-   most dangerous, the oldest and the recurring complaint. Every complaint ID is a link.
-2. **Tap a link:** GCC Publyq opens in your role and language, with the brief already asked.
-3. **Tap the mic and talk:** *"What should I look at first?"* It answers in the language you spoke: natural Chennai-office Tamil, plain Hindi or English,
-   with the complaint details, photos and the official procedure on screen.
-4. **Act:** *"Escalate it."* It shows exactly what it will do. *"சரி"* (OK) confirms it.
-5. **Follow up:** the escalation is posted to Telegram, a follow-up is scheduled, and a completion report is ready.
+## How a call works
 
-### It's honest
-- Every fact comes from GCC's own records. If the data can't answer a question, it says so.
-- Nothing is recorded or sent until you confirm. Saying "confirm" (or சரி) is handled by fixed code, never by the AI.
-- GCC's portal has no way for outside apps to update it. So actions are **recorded in GCC Publyq and shared on
-  Telegram**, and the app always says so.
-
----
+1. **Sign in with Telegram.** Only members of the Ward 173 Telegram group get in.
+2. **Pick your post** once (Assistant Engineer, Sanitary Inspector, Executive Engineer, …). You can change it any time.
+3. **Tap the big mic** to start a call. You hear a greeting, and your mic stays **off**.
+4. **Tap the mic, speak, tap again.** Only what you say between the two taps is heard, so street and office noise
+   never becomes a question.
+5. **Listen to the answer** while the details appear on screen as cards.
+6. **Speak any of the three languages.** Switch from English to Tamil to Hindi mid-call; the answer, the voice and the
+   screen follow you.
+7. **End call** is its own button. The conversation is saved in your History.
 
 ## How it works
 
@@ -59,67 +67,58 @@ leaders also see everything their team holds.
 flowchart LR
     U(("Ward officer<br/>phone / browser"))
     subgraph Agora["Agora Conversational AI"]
-        STT["ARES speech-to-text<br/>(English + Tamil + Hindi)"] --> LLMhop["LLM step"] --> TTS["Murf Falcon 2.1<br/>Anisha"]
+        STT["ARES speech-to-text<br/>en-IN + ta-IN + hi-IN"] --> LLMhop["LLM step"] --> TTS["Murf Falcon 2.1<br/>(call's language)"]
     end
     subgraph App["GCC Publyq on Vercel"]
-        Brain["Brain<br/>(FastAPI)"]
-        Tools["Tools: queue, patterns, complaint details,<br/>read-only SQL, procedures, triage, actions, reports"]
+        Brain["Brain (FastAPI)<br/>fixed controls → Claude → fallback"]
+        Tools["15 tools: queue, patterns, complaint,<br/>read-only SQL, SOPs, triage, actions, reports"]
         Brain --> Tools
     end
     Claude["Claude Opus 5.5"]
     DB[("Neon Postgres<br/>Ward 173 records")]
     TG["Telegram<br/>Ward 173 group"]
-    PQ["app.publyq.in<br/>analytics"]
-    MCPc["Any MCP client<br/>(Claude Desktop, IDEs)"]
+    PQ["app.publyq.in"]
+    MCPc["MCP clients"]
 
-    U -- "voice (Agora RTC)" --> STT
+    U -- "audio (Agora RTC)<br/>tap-to-talk signals (RTM)" --> STT
     TTS -- "voice" --> U
-    LLMhop -- "every spoken turn" --> Brain
-    U -- "text chat + cards" --> Brain
+    LLMhop -- "each spoken turn" --> Brain
+    U -- "sign-in, chat, cards" --> Brain
     Brain <--> Claude
     Tools --> DB
     Tools --> TG
     Tools -. "deep links" .-> PQ
     MCPc -- "/mcp" --> Tools
-    Cron["Daily 7 am job"] --> TG
+    Cron["7 am job"] --> TG
 ```
 
-**In plain words:**
+- **Agora carries the voice.** The browser joins an Agora channel; Agora's agent hears the turn (ARES listens for all
+  three languages at once), sends the words to our brain, and speaks the answer with a Murf voice. Audio never passes
+  through our server.
+- **The brain decides.** "Confirm" and "cancel" (and சரி, हाँ, வேண்டாம், नहीं) are handled by fixed code. Everything else goes to
+  Claude, which looks things up with our tools. The language of your words decides the language of the reply.
+- **The tools are the only way to touch data.** The voice agent, the chat and outside AI assistants (through MCP) use
+  the same tools with the same rules.
+- **Telegram is how actions reach people.** Confirmed escalations and requests are posted to the ward's group, and
+  every message is logged, including failed ones.
 
-1. **Your voice travels over Agora.** Agora's voice agent turns your speech into text, sends it to our brain, and reads
-   the answer back with a Murf voice. Audio never passes through our server, which keeps it fast.
-2. **The brain decides what to do.** "Confirm" and "cancel" are handled by fixed code. Everything else goes to Claude,
-   which uses our tools to look things up and can write its own read-only database queries for open-ended questions.
-3. **The tools are the only way to touch data.** The same tools serve the voice agent, the chat and outside AI
-   assistants (through MCP), so they all follow the same rules.
-4. **Actions reach people on Telegram.** Escalations, help requests and close-out requests are posted to the
-   ward's group once you confirm. Every message is logged, including failed ones.
-5. **Publyq shows the bigger picture.** Every list and complaint links straight into the matching view on
-   [app.publyq.in](https://app.publyq.in).
-
-The first answer word usually arrives in about **1 second**: the assistant says "Let me check…" while it looks things up.
-
-Deeper design notes: [ARCHITECTURE.md](ARCHITECTURE.md).
-
----
+The first spoken word usually comes in about **1 second**: the assistant says "Let me check…" while it looks things up.
+Design details: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Tool stack
 
 | Part | What we use | Why |
 |---|---|---|
-| Voice conversation | **Agora Conversational AI** + **Agora RTC** (Web SDK 4.24) | Real-time voice with turn-taking and interruptions handled for us |
-| Speech-to-text | **Agora ARES** (`en-IN,ta-IN,hi-IN` in one call) | Agora's own engine; hears all three, so nobody picks a language |
-| Text-to-speech | **Murf AI Falcon 2.1**: Anisha, in the language the caller is speaking | Natural Indian voice |
-| AI brain | **Claude Opus 5.5** via the official Anthropic Python SDK | Strong reasoning and tool use; it writes and checks its own database queries |
-| Backend | **Python 3.12 + FastAPI** | Streams answers to the voice agent and the browser |
-| Database | **PostgreSQL on Neon** (local Postgres for development) | All complaint records, officials, procedures and the action history |
-| Hosting | **Vercel** (functions in US-East) + a daily Vercel Cron job | Sits next to Claude and the database for fast tool calls |
-| Messaging | **Telegram Bot API** (@Publyqbot) | Where ward staff already talk |
-| Analytics | **app.publyq.in** deep links | Lists, maps and accountability views without rebuilding them |
-| Integrations | **MCP server** at `/mcp` | Lets any MCP-compatible AI assistant use the same tools safely |
-| Frontend | Plain HTML/CSS/JavaScript, no build step | Fast on phones; uses Publyq's design (light and dark mode) |
-
----
+| Voice call | **Agora Conversational AI** + **Agora RTC** Web SDK 4.24 + **Agora RTM** 2.3 | Real-time voice; RTM carries the tap-to-talk signals |
+| Speech-to-text | **Agora ARES**, `en-IN,ta-IN,hi-IN` in one call | Nobody has to pick a language |
+| Text-to-speech | **Murf Falcon 2.1**, Anisha, in the caller's language | Natural Indian voice, streamed |
+| AI brain | **Claude Opus 5.5**, official Anthropic Python SDK | Reasons with tools and writes its own read-only queries |
+| Backend | **Python 3.12 + FastAPI** on **Vercel** (US-East) | Streams answers; sits next to Claude and the database |
+| Database | **PostgreSQL on Neon** | Records, actions, conversations, accounts |
+| Sign-in and messaging | **Telegram** (Login Widget + Bot API, @Publyqbot) | Where ward staff already are |
+| Analytics | **app.publyq.in** deep links | Lists and maps without rebuilding them |
+| Integrations | **MCP server** at `/mcp` | Any MCP-compatible assistant can use the same tools |
+| Frontend | Plain HTML, CSS and JavaScript, no build step | Fast on phones; light and dark mode |
 
 ## The data
 
@@ -133,21 +132,20 @@ Real GCC records for **Ward 173 (Adyar, zone 13), January–November 2026**:
 | GCC posts and reporting lines (posts, not named people) | 761 / 892 |
 | Standard operating procedures | 56 |
 
-The raw CSVs are in [`Complaints/`](Complaints) and [`Officials/`](Officials). Photo and video files themselves are
-not stored in this repository.
+The source CSVs are in [`Complaints/`](Complaints) and [`Officials/`](Officials). Photo and video files are not stored here.
 
----
+## Security and privacy
 
-## Safety built in
-
-- **Two-step actions:** propose, then confirm. The AI can't confirm on its own.
-- **Read-only investigations:** the AI's database queries run as a read-only user, are cut off after 3 seconds,
-  and are capped at 50 rows. Private chat history is off-limits.
-- **Secrets stay out of the code:** all keys live in environment variables (see [`.env.example`](.env.example)).
-- **Protected endpoints:** the voice agent, the 7 am job and the MCP server each need their own secret token.
-- **Everything is logged:** every conversation turn, action and Telegram message.
-
----
+- **Sign-in:** Telegram, members of the Ward 173 group only, re-checked daily. The session is a random token in a
+  cookie scripts can't read; the database stores only a hash of it.
+- **Your history is yours:** each conversation belongs to the account that started it. Nobody else can read it,
+  continue it, call into it, or confirm actions in it.
+- **The AI can't change data or read chats:** its queries run as a read-only database user that has no access to
+  conversations, with a 3-second limit and 50 rows; functions that could escape that user are blocked.
+- **Secrets stay on the server:** every key lives in environment variables ([`.env.example`](.env.example)). The voice
+  agent, the 7 am job and MCP each need their own token, and an unset token turns its endpoint off.
+- **The browser is locked down:** the page can't be embedded in other sites, HTTPS is forced, and private API answers
+  are never cached.
 
 ## Run it yourself
 
@@ -159,13 +157,15 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/uvicorn backend.app.main:app --port 8173 --reload
 ```
 
-Open http://localhost:8173. Without API keys it still works: text chat answers from built-in rules, and voice and
-Claude turn on as you add keys.
+Open http://localhost:8173. Telegram sign-in only works on the domain set in BotFather (`/setdomain`), and voice needs
+a public `PUBLIC_BASE_URL` that Agora can reach, so full end-to-end testing happens on the deployed site.
 
-**Tests:** `.venv/bin/pytest` (91 tests; they never call paid APIs or send real messages).
+**Tests:** `.venv/bin/pytest`. 133 tests, including replays of every attack fixed so far; they never call paid APIs
+or send real messages.
 
-**Deploy:** pushing to `main` deploys to Vercel. Data moves to Neon with
-`python -m backend.scripts.migrate_db`, which refuses to overwrite existing data and checks every table afterwards.
+**Deploy:** pushing to `main` deploys to Vercel. Schema changes go to Neon with
+`python -m backend.scripts.apply_schema` (adds what's missing, never drops anything); a first full copy of the data
+uses `python -m backend.scripts.migrate_db`.
 
 **Connect an MCP client** (for example Claude Code):
 
@@ -173,34 +173,39 @@ Claude turn on as you add keys.
 claude mcp add --transport http gcc-publyq https://gcc.publyq.in/mcp --header "Authorization: Bearer $MCP_TOKEN"
 ```
 
----
-
 ## Project layout
 
 ```
 backend/app/        brain and tools
-  agent.py          one conversation turn: fixed controls → Claude with tools → fallback
+  agent.py          one turn: fixed controls → Claude with tools → fallback
+  lang.py           which language the person is speaking
   tools.py          complaints, officials, procedures, actions, reports
   dbquery.py        the AI's read-only SQL
-  roles.py          posts and who sees what
-  voice.py          Agora + Murf call setup (English / Tamil / Hindi)
+  roles.py          GCC posts and who sees what
+  auth.py           Telegram sign-in and sessions
+  voice.py          Agora + Murf call setup, push to talk
   brief.py          the 7 am morning brief
   telegram.py       sending and logging Telegram messages
   publyq.py         links into app.publyq.in
   mcp.py            MCP server
-  main.py           web API
-backend/scripts/    load data, move it to Neon, link the Telegram group, test LLMs
-backend/tests/      91 tests
-web/                the app people use (one page, no build step)
+  main.py           web API and who may touch what
+backend/scripts/    seed data, apply schema, copy to Neon, link Telegram, evaluate LLMs
+backend/tests/      133 tests
+web/                the app (one page, no build step)
 Complaints/, Officials/   Ward 173 source data
 ```
 
----
+## Known limits
+
+- **Snapshot data:** records are from 15–20 Nov 2026; Publyq's live views can drift from them.
+- **No GCC write-back:** GCC's portal has no API for outside apps.
+- **Posts are self-chosen:** sign-in proves you're in the ward group, not which post you hold.
+- **Three-language calls are new:** automatic switching and the Hindi voice need more real calls to be proven.
 
 ## What's next
 
-- **Proof of fix:** require a before/after photo with location to close a complaint (1 in 5 currently come back).
-- **Personal briefs:** send each officer their own morning message, once everyone signs in with their phone number.
+- **Proof of fix:** require a before/after photo with location to close a complaint (1 in 5 come back today).
+- **Personal briefs:** send each officer their own morning message in their language.
 - **Reply to citizens:** answer the original post on X when a fix is confirmed.
 - **Live data:** switch from the November snapshot to Publyq's daily feed.
 - **GCC portal write-back:** the one integration only GCC can unlock.
