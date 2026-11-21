@@ -31,7 +31,7 @@
       tap: 'Tap and talk', orAsk: 'Or ask', type: 'Or type here…', who: 'Who are you?', whoSub: 'Pick your post. Answers follow your responsibilities.',
       field: 'In the field', lead: 'Leadership', open: (n) => `${n} open`, safety: (n) => `${n} safety`,
       desk: (n, s) => n ? `${n} open on your desk${s ? `, ${s} safety risk` : ''}.` : 'Nothing open on your desk.',
-      connecting: 'Connecting…', listening: 'Listening. Speak in English, Tamil or Hindi.', switching: 'Switching to English…', end: 'End',
+      connecting: 'Connecting…', listening: 'Listening. Speak in English, Tamil or Hindi.', switching: 'Switching to English…', end: 'End call', talkIdle: 'Tap the mic to talk', talkOn: "Speak now. Tap the mic again when you're done.", talkDone: "Done speaking", working: 'Got it. Working on it…',
       started: 'Call started', ended: 'Call ended', failed: "Couldn't start the call. You can still type.", voiceOff: 'Voice is not available right now. You can type.',
       offline: "Can't reach the server.", footer: (n) => `${n} complaints · Ward 173 (Adyar), Chennai`, history: 'Conversations', none: 'No conversations yet.',
       loading: 'Loading…', resumed: 'Continued from earlier', waiting: 'Waiting for your confirmation', recorded: 'Recorded', confirm: 'Confirm', cancel: 'Cancel',
@@ -40,7 +40,7 @@
       tap: 'தட்டிப் பேசுங்கள்', orAsk: 'அல்லது கேளுங்கள்', type: 'அல்லது இங்கே எழுதுங்கள்…', who: 'நீங்கள் யார்?', whoSub: 'உங்கள் பதவியைத் தேர்ந்தெடுங்கள்.',
       field: 'களப் பணி', lead: 'தலைமை', open: (n) => `${n} நிலுவை`, safety: (n) => `${n} அபாயம்`,
       desk: (n, s) => n ? `உங்களிடம் ${n} புகார்கள் நிலுவையில்${s ? `, ${s} பாதுகாப்பு அபாயம்` : ''}.` : 'நிலுவையில் புகார்கள் இல்லை.',
-      connecting: 'இணைக்கிறது…', listening: 'கேட்கிறேன். தமிழ், ஆங்கிலம் அல்லது இந்தியில் பேசுங்கள்.', switching: 'தமிழுக்கு மாறுகிறது…', end: 'முடி',
+      connecting: 'இணைக்கிறது…', listening: 'கேட்கிறேன். தமிழ், ஆங்கிலம் அல்லது இந்தியில் பேசுங்கள்.', switching: 'தமிழுக்கு மாறுகிறது…', end: 'அழைப்பை முடி', talkIdle: 'பேச மைக்கைத் தட்டுங்கள்', talkOn: 'இப்போது பேசுங்கள். முடிந்ததும் மைக்கை மீண்டும் தட்டுங்கள்.', talkDone: 'பேசி முடித்தேன்', working: 'புரிந்தது. பார்க்கிறேன்…',
       started: 'அழைப்பு தொடங்கியது', ended: 'அழைப்பு முடிந்தது', failed: 'அழைப்பைத் தொடங்க முடியவில்லை. எழுதிக் கேட்கலாம்.', voiceOff: 'இப்போது குரல் வசதி இல்லை. எழுதிக் கேட்கலாம்.',
       offline: 'சர்வருடன் இணைக்க முடியவில்லை.', footer: (n) => `${n} புகார்கள் · வார்டு 173 (அடையாறு), சென்னை`, history: 'உரையாடல்கள்', none: 'உரையாடல்கள் இல்லை.',
       loading: 'ஏற்றுகிறது…', resumed: 'முன்பு விட்ட இடத்திலிருந்து', waiting: 'உங்கள் உறுதிக்குக் காத்திருக்கிறது', recorded: 'பதிவு செய்யப்பட்டது', confirm: 'உறுதி செய்', cancel: 'ரத்து',
@@ -49,7 +49,7 @@
       tap: 'दबाएँ और बोलें', orAsk: 'या पूछें', type: 'या यहाँ लिखें…', who: 'आप कौन हैं?', whoSub: 'अपना पद चुनिए।',
       field: 'फ़ील्ड', lead: 'नेतृत्व', open: (n) => `${n} खुली`, safety: (n) => `${n} जोखिम`,
       desk: (n, s) => n ? `आपके पास ${n} शिकायतें खुली हैं${s ? `, ${s} सुरक्षा जोखिम` : ''}।` : 'कोई शिकायत खुली नहीं है।',
-      connecting: 'जुड़ रहा है…', listening: 'सुन रही हूँ। हिंदी, अंग्रेज़ी या तमिल में बोलिए।', switching: 'हिंदी में बदल रही हूँ…', end: 'बंद करें',
+      connecting: 'जुड़ रहा है…', listening: 'सुन रही हूँ। हिंदी, अंग्रेज़ी या तमिल में बोलिए।', switching: 'हिंदी में बदल रही हूँ…', end: 'कॉल खत्म करें', talkIdle: 'बोलने के लिए माइक दबाएँ', talkOn: 'अब बोलिए। बोलना पूरा हो तो माइक फिर दबाएँ।', talkDone: 'बोलना पूरा', working: 'समझ गई। देख रही हूँ…',
       started: 'कॉल शुरू', ended: 'कॉल खत्म', failed: 'कॉल शुरू नहीं हो पाई। आप लिखकर पूछ सकते हैं।', voiceOff: 'अभी आवाज़ उपलब्ध नहीं है। आप लिखकर पूछ सकते हैं।',
       offline: 'सर्वर से नहीं जुड़ पा रहे।', footer: (n) => `${n} शिकायतें · वार्ड 173 (अडयार), चेन्नई`, history: 'बातचीत', none: 'अभी कोई बातचीत नहीं।',
       loading: 'लोड हो रहा है…', resumed: 'पिछली बातचीत से जारी', waiting: 'आपकी पुष्टि का इंतज़ार', recorded: 'दर्ज हो गया', confirm: 'पक्का करें', cancel: 'रद्द करें',
@@ -430,10 +430,16 @@
   // Adapted from Agora's quickstart lifecycle: token -> invite agent -> join RTC -> publish mic,
   // play the agent's audio. The agent's LLM is our brain, so every spoken turn is saved under this
   // conversation; we poll it to show the same cards the chat shows.
+  //
+  // Push to talk: the mic stays muted until the person taps it. Tap = start of their turn (unmute, then tell the
+  // agent "start of speech"); tap again = end of turn ("end of speech", then mute). The agent runs in manual turn
+  // mode, so nothing said outside a turn reaches it. The signals go over RTM straight to the agent, in the format
+  // Agora's client toolkit uses. Ending the call is its own button.
   const RTC_SDK = 'https://cdn.jsdelivr.net/npm/agora-rtc-sdk-ng@4.24.10/AgoraRTC_N-production.min.js';
+  const RTM_SDK = 'https://cdn.jsdelivr.net/npm/agora-rtm@2.3.0/agora-rtm.js';     // needs AgoraRTC loaded first
   let call = null;
-  const loadScript = (src) => new Promise((ok, fail) => {
-    if (window.AgoraRTC) return ok();
+  const loadScript = (src, global) => new Promise((ok, fail) => {
+    if (window[global]) return ok();
     const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => fail(new Error('Could not load Agora SDK')); document.head.append(s);
   });
   const callState = (txt) => { $('#callState').textContent = txt; };
@@ -452,7 +458,7 @@
     const started = await api('/api/voice/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ channel: call.channel, agent_uid: agentUid(), user_uid: call.uid, session_id: convId, role_id: roleId,
         lang: l, ...(greetTurnId ? { greet_turn_id: greetTurnId } : {}) }) });
-    call.agentId = started.agent_id; call.lang = l;
+    call.agentId = started.agent_id; call.agentUid = String(started.agent_uid); call.lang = l;
     return started;
   }
   const stopAgent = (id) => id && api('/api/voice/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: id }) }).catch(() => {});
@@ -460,11 +466,39 @@
   async function switchLanguage(l, turnId) {
     if (!call || call.switching) return;
     call.switching = true;
+    if (call.talking) await setTalking(false, { quiet: true });
     setLang(l); callState(t().switching);
-    const old = call.agentId; call.agentId = null;
+    const old = call.agentId; call.agentId = null; call.agentUid = null;
     await stopAgent(old);
-    try { if (call) await startAgent(l, turnId); } catch (err) { if (call) callState(t().failed); }
+    try { if (call) { await startAgent(l, turnId); callState(t().talkIdle); } } catch (err) { if (call) callState(t().failed); }
     if (call) call.switching = false;
+  }
+
+  // start / end of the person's turn
+  const turnSignal = (customType) => call?.rtm && call.agentUid && call.rtm.publish(call.agentUid,
+    JSON.stringify({ request_id: `${customType.endsWith('sos') ? 'sos' : 'eos'}-req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` }),
+    { channelType: 'USER', customType });
+  async function setTalking(on, { quiet } = {}) {
+    if (!call || !call.mic || !call.agentUid || call.talking === on) return;
+    call.talking = on;
+    mic.classList.toggle('talking', on); mic.setAttribute('aria-pressed', String(on));
+    mic.setAttribute('aria-label', on ? t().talkDone : t().talkIdle);
+    try {
+      if (on) {
+        await call.mic.setMuted(false);
+        await turnSignal('user.manual_sos');
+        callState(t().talkOn);
+      } else {
+        await new Promise((r) => setTimeout(r, 250));      // let the last word reach the agent
+        await turnSignal('user.manual_eos');
+        await call.mic.setMuted(true);
+        if (!quiet) callState(t().working);
+      }
+    } catch (err) {
+      try { await call.mic.setMuted(true); } catch (_) {}
+      call.talking = false; mic.classList.remove('talking');
+      callState(t().failed);
+    }
   }
 
   async function startCall() {
@@ -472,24 +506,30 @@
     if (!voiceStatus.ready) { status(t().voiceOff, true); return; }
     if (!convId) { convId = 'c-' + uid(); store.set('conv', convId); }
     $('.hello', feed)?.remove(); $('.pick', feed)?.remove();
-    call = { agentId: null, client: null, mic: null, poll: null, lang, switching: false };
+    call = { agentId: null, agentUid: null, client: null, rtm: null, mic: null, poll: null, lang, switching: false, talking: false };
     document.body.classList.add('in-call'); $('#callbar').hidden = false; callState(t().connecting);
-    mic.classList.add('live'); mic.setAttribute('aria-pressed', 'true'); mic.setAttribute('aria-label', t().end);
+    mic.classList.add('live'); mic.setAttribute('aria-pressed', 'false'); mic.setAttribute('aria-label', t().talkIdle);
     try {
-      await loadScript(RTC_SDK);
+      await loadScript(RTC_SDK, 'AgoraRTC');
+      await loadScript(RTM_SDK, 'AgoraRTM');
       const cfg = await api(`/api/voice/config?session_id=${encodeURIComponent(convId)}`);
       call.channel = cfg.channel; call.uid = cfg.uid;
       const client = window.AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
       call.client = client;
       client.on('user-published', async (user, mediaType) => {
         await client.subscribe(user, mediaType);
-        if (mediaType === 'audio') { user.audioTrack.play(); callState(t().listening); }
+        if (mediaType === 'audio') { user.audioTrack.play(); if (call && !call.talking && !call.switching) callState(t().talkIdle); }
       });
       await client.join(cfg.app_id, cfg.channel, cfg.token, cfg.uid);
+      // the call token covers RTM too (RTC + RTM + ConvoAI), with the same user id
+      call.rtm = new window.AgoraRTM.RTM(cfg.app_id, String(cfg.uid));
+      await call.rtm.login({ token: cfg.token });
       call.mic = await window.AgoraRTC.createMicrophoneAudioTrack({ AEC: true, ANS: true, AGC: true });
+      await call.mic.setMuted(true);                       // nothing is heard until the person taps to talk
       await client.publish([call.mic]);
       await startAgent(lang);
       call.poll = setInterval(pollTurns, 1500);
+      callState(t().talkIdle);
       feed.append(h(`<p class="divider">${esc(t().started)}</p>`)); scroll(true);
     } catch (err) {
       feed.append(h(`<p class="divider bad">${esc(t().failed)}</p>`));
@@ -502,9 +542,10 @@
     call = null;
     clearInterval(c.poll);
     document.body.classList.remove('in-call'); $('#callbar').hidden = true;
-    mic.classList.remove('live'); mic.setAttribute('aria-pressed', 'false'); mic.setAttribute('aria-label', t().tap);
+    mic.classList.remove('live', 'talking'); mic.setAttribute('aria-pressed', 'false'); mic.setAttribute('aria-label', t().tap);
     try { if (c.mic) { c.mic.stop(); c.mic.close(); } } catch (_) {}
     try { if (c.client) await c.client.leave(); } catch (_) {}
+    try { if (c.rtm) await c.rtm.logout(); } catch (_) {}
     stopAgent(c.agentId);
     if (!quiet) { feed.append(h(`<p class="divider">${esc(t().ended)}</p>`)); scroll(true); }
   }
@@ -521,6 +562,7 @@
         $('.say', el).textContent = tn.reply || '';
         for (const cd of tn.cards || []) { const n = card(cd); if (n) $('.cards', el).append(n); }
         feed.append(el);
+        if (call && !call.talking && !call.switching) callState(t().talkIdle);
         if (tn.role_id && tn.role_id !== roleId) setRole(tn.role_id, { persist: true });
         if (call && tn.lang && tn.lang !== call.lang) switchLanguage(tn.lang, tn.id);
         else if (tn.lang) setLang(tn.lang);
@@ -549,7 +591,7 @@
     }
     const act = t.dataset.act;
     if (act === 'theme') setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
-    else if (act === 'call') call ? endCall() : startCall();
+    else if (act === 'call') call ? setTalking(!call.talking) : startCall();     // in a call the mic is talk on / off
     else if (act === 'endcall') endCall();
     else if (act === 'new') newConversation();
     else if (act === 'history') openHistory();

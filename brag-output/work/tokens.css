@@ -1,0 +1,106 @@
+/* ── publyq design tokens ────────────────────────────────────────────────
+   Direction: a civic *instrument*. Graphite canvas, one brand accent (marina
+   teal), a disciplined semantic ramp used only for status. Type pairs a
+   characterful display grotesk with a neutral UI face and a mono data face. */
+:root {
+  /* neutrals (dark) — the landing site's blue-black, a shade deeper than
+     before, with a trace of the brand teal */
+  color-scheme: dark;
+  --canvas: #070d10;
+  --surface: #0e181d;
+  --raised: #132228;
+  --sunken: #050a0c;
+  --line: #16252c;
+  --line-2: #22363f;
+  --fg: #e9f1f3;
+  --fg-muted: #93a7ae;
+  --fg-faint: #72878f; /* 4.8:1 on surfaces, 5.2:1 on canvas — AA for small text */
+
+  /* brand — the logo's cyan-teal */
+  --brand: #19cfc6;
+  --brand-hi: #4fe6dd;
+  --brand-deep: #0d8f8a;
+  --brand-tint: rgba(25, 207, 198, 0.12);
+  --brand-glow: rgba(25, 207, 198, 0.35);
+  --on-brand: #03201e;
+
+  /* map ramp: empty -> low -> high */
+  --map-empty: #0d1a20;
+  --map-lo: #0e3136;
+  --map-hi: #3ef0e4;
+  --map-edge: #070d10;
+  --map-void: #04080a; /* the city outside a selection */
+
+  /* semantic status ramp (data only) */
+  --pos: #3fb950;
+  --warn: #e8a13c;
+  --crit: #ff5d5d;
+  --info: #4ea8ff;
+
+  --pos-tint: rgba(63, 185, 80, 0.14);
+  --warn-tint: rgba(232, 161, 60, 0.14);
+  --crit-tint: rgba(255, 93, 93, 0.14);
+  --info-tint: rgba(78, 168, 255, 0.14);
+
+  /* type */
+  --display: 'Bricolage Grotesque', 'Inter', system-ui, sans-serif;
+  --body: 'Inter', system-ui, -apple-system, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  /* geometry + motion */
+  --r: 14px;
+  --r-sm: 10px;
+  --r-xs: 8px;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 28px rgba(0, 0, 0, 0.36);
+  --shadow-lg: 0 30px 80px -20px rgba(0, 0, 0, 0.8);
+  --ring: 0 0 0 2px var(--canvas), 0 0 0 4px var(--brand);
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* box geometry — one system for every card and everything nested in it:
+     --gutter  page edge → content
+     --pad     a box's edge → its content (and nested boxes' inset)
+     --gap     space between sibling boxes
+     --r / --r-sm  radius of cards / of anything inside a card
+     phone.css only changes these values, never the rules. */
+  --gutter: 24px;
+  --pad: 20px;
+  --gap: 16px;
+  --maxw: 1220px;
+  --maxw-wide: 1440px;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --canvas: #f4f7f8;
+  --surface: #ffffff;
+  --raised: #eff4f5;
+  --sunken: #e8eef0;
+  --line: #e1e8eb;
+  --line-2: #cbd7dc;
+  --fg: #0d1a1f;
+  --fg-muted: #4f626a;
+  --fg-faint: #7f9199;
+  --brand: #0b938d;
+  --brand-hi: #0fb0a8;
+  --brand-deep: #08736e;
+  --brand-tint: rgba(11, 147, 141, 0.1);
+  --brand-glow: rgba(11, 147, 141, 0.28);
+  --on-brand: #ffffff;
+  --map-empty: #edf2f4;
+  --map-lo: #d4efec;
+  --map-hi: #067a75;
+  --map-edge: #ffffff;
+  --map-void: #dfe7ea;
+  --pos: #1f9d4d;
+  --warn: #c9821f;
+  --crit: #e4443f;
+  --info: #2b7fd6;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 10px 30px rgba(16, 24, 40, 0.08);
+  --shadow-lg: 0 24px 60px rgba(16, 24, 40, 0.18);
+  --ring: 0 0 0 2px var(--canvas), 0 0 0 4px var(--brand);
+}
+
+/* Tamil script gets Anek Tamil when the language is toggled */
+:root[data-lang='ta'] {
+  --display: 'Anek Tamil', 'Bricolage Grotesque', sans-serif;
+  --body: 'Anek Tamil', 'Inter', sans-serif;
+}

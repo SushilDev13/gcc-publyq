@@ -52,7 +52,11 @@ together, why, and what was deliberately left out.
 
 ## 3. One spoken turn
 
-1. Agora's VAD detects the end of speech; ARES transcribes it, listening for `en-IN,ta-IN,hi-IN` at once.
+1. **Push to talk.** The mic is muted until the person taps it. The tap unmutes it and sends the agent a start of
+   speech signal; the next tap sends end of speech and mutes again (RTM, customType `user.manual_sos` /
+   `user.manual_eos`, as Agora's client toolkit sends them). The agent runs with manual turn detection, so office
+   or street noise between turns never becomes a question. End call is a separate button. ARES transcribes the
+   turn, listening for `en-IN,ta-IN,hi-IN` at once.
 2. Agora calls `POST /v1/chat/completions?session=…&role=…&lang=…` with the shared bearer token.
 3. `run_turn` loads the session context (role, focus complaint, last list) from the `turns` table: the server
    is stateless, so context lives in Postgres.

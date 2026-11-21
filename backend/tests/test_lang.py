@@ -62,6 +62,9 @@ def test_every_call_hears_three_languages(monkeypatch):
     r = api.post('/api/voice/start', json=body, headers=as_user('test-device-h')).json()
     assert r['lang'] == 'hi' and r['greeting'].startswith('नमस्ते')
     assert captured['agent']._turn_detection['language'] == ['en-IN', 'ta-IN', 'hi-IN']
+    cfg = captured['agent']._turn_detection['config']               # push to talk: the browser marks each turn
+    assert cfg['start_of_speech'] == {'mode': 'manual'} and cfg['end_of_speech'] == {'mode': 'manual'}
+    assert r['agent_uid'] == 22
     _, _, tts = voice.vendors('s', None, 'x', 'anisha', 'hi')
     assert tts.to_config()['params']['locale'] == 'hi-IN'
 

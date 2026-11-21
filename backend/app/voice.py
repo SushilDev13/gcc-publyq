@@ -12,6 +12,12 @@ channel and start/stop lifecycle. Changed only the documented vendor blocks:
             sends the list as one comma-separated asr.language). The managed
             Deepgram preset timed out on this project (agent-error asr 1000).
 
+Push to talk: the person taps the mic to start their turn and taps again to end it. The agent runs with manual
+start and end of speech, so it only hears what is said between the two taps (noise around the office or street
+is never a turn). The browser sends those two signals over RTM (customType user.manual_sos / user.manual_eos,
+body {"request_id": ...}, straight to the agent's user id), as Agora's client toolkit does, and keeps its
+microphone muted outside a turn.
+
 Language switching is automatic. ARES hears all three languages, but a running
 agent's TTS can't be changed (Agora's update takes llm and token only). So when
 the speaker changes language, the brain says a short holding line, the browser
@@ -148,9 +154,8 @@ async def start(channel: str, agent_uid: int, user_uid: int, session_id: str, ro
         client=_client(), instructions=INSTRUCTIONS, greeting=hello,
         failure_message=FAILURE.get(lang, FAILURE['en']), max_history=50,
         turn_detection={'language': HEARS, 'config': {
-            'speech_threshold': 0.5,
-            'start_of_speech': {'mode': 'vad', 'vad_config': {'interrupt_duration_ms': 160, 'prefix_padding_ms': 300}},
-            'end_of_speech': {'mode': 'vad', 'vad_config': {'silence_duration_ms': 480}},
+            'start_of_speech': {'mode': 'manual'},        # push to talk: the browser marks each turn
+            'end_of_speech': {'mode': 'manual'},
         }},
         advanced_features={'enable_rtm': True, 'enable_tools': True},
         parameters={'audio_scenario': 'chorus', 'data_channel': 'rtm', 'enable_error_message': True,
@@ -161,8 +166,8 @@ async def start(channel: str, agent_uid: int, user_uid: int, session_id: str, ro
                                          enable_string_uid=False, idle_timeout=30, expires_in=3600)
     agent_id = await session.start()
     log.info('voice agent started agent_id=%s channel=%s role=%s lang=%s', agent_id, channel, role_id, lang)
-    return {'agent_id': agent_id, 'channel': channel, 'greeting': hello, 'voice': VOICES[voice]['label'],
-            'lang': lang}
+    return {'agent_id': agent_id, 'agent_uid': agent_uid, 'channel': channel, 'greeting': hello,
+            'voice': VOICES[voice]['label'], 'lang': lang}
 
 
 async def stop(agent_id: str) -> None:
