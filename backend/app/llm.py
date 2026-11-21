@@ -23,8 +23,10 @@ class LLMError(RuntimeError):
 def client() -> anthropic.AsyncAnthropic:
     global _client
     if _client is None:
+        headers = ({'anthropic-workspace-id': settings.anthropic_workspace_id}
+                   if settings.anthropic_workspace_id else None)
         _client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, timeout=settings.llm_timeout_s,
-                                           max_retries=1)
+                                           max_retries=1, default_headers=headers)
     return _client
 
 
@@ -49,5 +51,7 @@ async def stream_round(system: list[dict], messages: list[dict], tools: list[dic
         raise LLMError('Anthropic rate limit') from e
     except anthropic.APIConnectionError as e:
         raise LLMError('cannot reach Anthropic API') from e
+    except anthropic.BadRequestError as e:
+        raise LLMError(f'Anthropic API rejected the request: {e.message[:200]}') from e
     except anthropic.APIStatusError as e:
         raise LLMError(f'Anthropic API error {e.status_code}') from e

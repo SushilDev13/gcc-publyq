@@ -1,6 +1,7 @@
 """Settings from environment / .env. One object, validated once at import."""
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -13,7 +14,8 @@ class Settings(BaseSettings):
     db_pool_max: int = 4
 
     # Claude (the brain): official Anthropic SDK
-    anthropic_api_key: str = ''
+    anthropic_api_key: str = Field('', validation_alias=AliasChoices('ANTHROPIC_API_KEY', 'CLAUDE_API'))
+    anthropic_workspace_id: str = ''     # needed only for API keys not scoped to a workspace
     llm_model: str = 'claude-opus-5-5'
     llm_effort: str = 'low'             # voice latency; raise for deeper investigations
     llm_timeout_s: float = 30.0
