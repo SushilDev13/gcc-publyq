@@ -95,10 +95,11 @@ def test_unknown_without_llm_is_honest():
 
 
 def test_openai_compatible_endpoint_streams(monkeypatch):
-    monkeypatch.setattr(settings, 'custom_llm_token', '')
+    monkeypatch.setattr(settings, 'custom_llm_token', 'secret')
     body = {'model': 'x', 'stream': True, 'messages': [{'role': 'system', 'content': 'ignored'},
                                                         {'role': 'user', 'content': "what's urgent"}]}
-    with api.stream('POST', '/v1/chat/completions?session=test-convoai', json=body) as r:
+    with api.stream('POST', '/v1/chat/completions?session=test-convoai', json=body,
+                    headers={'Authorization': 'Bearer secret'}) as r:
         lines = [ln for ln in r.iter_lines() if ln.startswith('data: ')]
     assert lines[-1] == 'data: [DONE]'
     text = ''.join(json.loads(ln[6:])['choices'][0]['delta'].get('content', '') for ln in lines[:-1])

@@ -15,7 +15,9 @@
     set(k, v) { try { v == null ? localStorage.removeItem('gcc.' + k) : localStorage.setItem('gcc.' + k, v); } catch (_) {} },
   };
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+  // This browser's private key to its own history: random, never shown, sent only as a header (not in URLs).
   const DEVICE = store.get('device') || (() => { const d = 'dev-' + uid(); store.set('device', d); return d; })();
+  const AUTH = { 'X-Device-Id': DEVICE };
   let convId = store.get('conv') || null;
   let roleId = store.get('role') || null;
   let roles = [];
@@ -316,7 +318,7 @@
   }
 
   async function loadConversation(id) {
-    const res = await fetch(`${API}/api/conversations/${encodeURIComponent(id)}?device_id=${encodeURIComponent(DEVICE)}`);
+    const res = await fetch(`${API}/api/conversations/${encodeURIComponent(id)}`, { headers: AUTH });
     if (!res.ok) return false;
     const c = await res.json();
     convId = id; store.set('conv', id);
@@ -346,7 +348,7 @@
     sheet.hidden = false;
     $('[data-act="close"]', sheet).focus();
     try {
-      const { items } = await (await fetch(`${API}/api/conversations?device_id=${encodeURIComponent(DEVICE)}`)).json();
+      const { items } = await (await fetch(`${API}/api/conversations`, { headers: AUTH })).json();
       list.innerHTML = items.length ? items.map((c) => `<li class="${c.id === convId ? 'on' : ''}">
         <button class="open" data-conv="${esc(c.id)}"><b>${esc(c.title || 'Conversation')}</b>
         <span>${esc(roleOf(c.role_id) ? roleName(roleOf(c.role_id)) : 'Ward 173')} · ${esc(ago(c.updated_at))}</span></button>
@@ -378,8 +380,8 @@
     const sayEl = $('.say', turn), cardsEl = $('.cards', turn);
     let said = '';
     try {
-      const res = await fetch(`${API}/api/agent/turn`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, session_id: convId, role_id: roleId, device_id: DEVICE, lang }) });
+      const res = await fetch(`${API}/api/agent/turn`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...AUTH },
+        body: JSON.stringify({ text, session_id: convId, role_id: roleId, lang }) });
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       const reader = res.body.getReader(), dec = new TextDecoder();
       let buf = '';
@@ -427,7 +429,7 @@
   });
   const callState = (txt) => { $('#callState').textContent = txt; };
   const api = async (path, opts) => {
-    const r = await fetch(`${API}${path}`, opts);
+    const r = await fetch(`${API}${path}`, { ...opts, headers: { ...AUTH, ...(opts?.headers || {}) } });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.detail || d.error || `HTTP ${r.status}`);
     return d;
@@ -439,7 +441,7 @@
   async function startAgent(l, greetTurnId) {
     const started = await api('/api/voice/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ channel: call.channel, agent_uid: agentUid(), user_uid: call.uid, session_id: convId, role_id: roleId,
-        device_id: DEVICE, lang: l, ...(greetTurnId ? { greet_turn_id: greetTurnId } : {}) }) });
+        lang: l, ...(greetTurnId ? { greet_turn_id: greetTurnId } : {}) }) });
     call.agentId = started.agent_id; call.lang = l;
     return started;
   }
@@ -500,7 +502,7 @@
   async function pollTurns() {
     if (!call || !convId) return;
     try {
-      const c = await api(`/api/conversations/${encodeURIComponent(convId)}?device_id=${encodeURIComponent(DEVICE)}`);
+      const c = await api(`/api/conversations/${encodeURIComponent(convId)}`);
       for (const tn of c.turns) {
         if (seenTurns.has(tn.id)) continue;
         seenTurns.add(tn.id);
@@ -528,7 +530,7 @@
     if (t.dataset.role) { setRole(t.dataset.role); return feed.querySelector('.turn') ? send(`I am the ${roleOf(t.dataset.role).label}`) : showHello(); }
     if (t.dataset.conv) { closeHistory(); return loadConversation(t.dataset.conv); }
     if (t.dataset.del) {
-      await fetch(`${API}/api/conversations/${encodeURIComponent(t.dataset.del)}?device_id=${encodeURIComponent(DEVICE)}`, { method: 'DELETE' });
+      await fetch(`${API}/api/conversations/${encodeURIComponent(t.dataset.del)}`, { method: 'DELETE', headers: AUTH });
       if (t.dataset.del === convId) newConversation();
       return openHistory();
     }

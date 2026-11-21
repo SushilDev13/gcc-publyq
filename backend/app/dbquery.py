@@ -3,7 +3,9 @@
 Four independent guards, so a bad or adversarial query can't change data or
 stall the service:
   1. single SELECT/WITH statement only (parsed check, no ';' chaining)
-  2. runs as role gcc_reader: SELECT on records only, no workspace chat tables
+  2. runs as role gcc_reader: SELECT on records only, no workspace chat tables. Functions that could switch
+     the role back (set_config) or run SQL from a string (query_to_xml, dblink, ...) are refused, and the
+     result is thrown away if the role is not gcc_reader when the query finishes.
   3. READ ONLY transaction + 3 s statement timeout
   4. at most 50 rows / 8 KB returned to the model
 """
@@ -23,6 +25,11 @@ MAX_CHARS = 8000
 FORBIDDEN = re.compile(r'\b(insert|update|delete|merge|drop|alter|create|grant|revoke|truncate|copy|call|do|'
                        r'vacuum|analyze|refresh|reset|set|listen|notify|lock|prepare|execute|comment|security)\b',
                        re.I)
+# set_config('role', ...) would undo SET ROLE; these run a SQL string or touch files/backends. U&"..." spells
+# identifiers with escapes, which would hide any of them.
+FORBIDDEN_FN = re.compile(r'\b(set_config|current_setting|\w*_to_xml\w*|dblink\w*|pg_read_\w+|pg_ls_\w+|pg_stat_file|'
+                          r'lo_\w+|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_advisory\w*)\b|\bu&["\']',
+                          re.I)
 
 SCHEMA_GUIDE = """Postgres tables (Ward 173, Adyar zone 13; GCC complaint records Jan-Nov 2026; posts not people):
 complaints(id, complaint_date timestamp IST, complainant, complaint_type, title, details_en, specific_location, locality,
@@ -64,6 +71,8 @@ def _check(sql: str) -> str:
     stripped = re.sub(r"'(?:[^']|'')*'", "''", s)   # ignore words inside string literals
     if FORBIDDEN.search(stripped):
         raise QueryError('read-only: that statement type is not allowed')
+    if FORBIDDEN_FN.search(s):                       # checked on the raw text: names can hide in quotes
+        raise QueryError('not allowed: that function is blocked for record queries')
     return s
 
 
@@ -86,6 +95,8 @@ def run(sql: str) -> dict:
                 cur = c.execute(s)
                 cols = [d.name for d in cur.description or []]
                 rows = cur.fetchmany(MAX_ROWS + 1)
+                if c.execute('SELECT current_user u').fetchone()['u'] != 'gcc_reader':
+                    raise QueryError('not allowed: the query changed its database role')
     except errors.QueryCanceled:
         raise QueryError('query took longer than 3 seconds; narrow it down')
     except errors.InsufficientPrivilege as e:

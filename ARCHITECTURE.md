@@ -118,9 +118,11 @@ the role and context used).
 |---|---|
 | A mis-heard voice command makes a change | Two-phase writes; confirm/cancel parsed by code (English and Tamil whole-utterance lists) |
 | The LLM writes to the database | `query_db` accepts one SELECT, runs as `gcc_reader` in a READ ONLY transaction, 3 s timeout |
+| The LLM's SQL reads people's chats | `gcc_reader` has no grant on `conversations`/`turns`; functions that could undo `SET ROLE` (`set_config`) or run SQL from a string (`query_to_xml`, `dblink`, …) are refused, and results are discarded if the role changed |
 | Prompt injection via complaint text | Record text is data in tool results; the LLM has no confirm tool; Telegram HTML is escaped |
-| Someone else's conversation | History is keyed by device; confirm-by-ID only works within its own conversation or channel |
-| Public endpoints abused | Separate bearer secrets for the ConvoAI brain, the cron job and MCP |
+| Someone else's conversation | A conversation belongs to the device that started it (random ID sent as `X-Device-Id`, never in URLs). Reading, continuing, calling into, proposing into, or confirming actions in it all check the owner; strangers get 404 |
+| Public endpoints abused | Separate bearer secrets for the ConvoAI brain, the cron job and MCP, compared in constant time; an unset secret turns its endpoint off |
+| Browser attacks | CORS only for `CORS_ORIGINS`; `X-Frame-Options: DENY`, `nosniff`, HSTS; API responses `no-store`; no OpenAPI schema served |
 | Silent delivery failures | Every Telegram attempt is logged with its status and error |
 
 ## 8. Deployment
@@ -135,7 +137,10 @@ non-empty target, re-applies the read-only role and checks row counts per table.
 
 - **Snapshot data:** the records are from 15–20 Nov 2026; Publyq's views are live, so filtered counts can drift.
 - **No GCC write-back:** GCC's portal has no API for outside apps.
-- **Identity is per device:** there's no sign-in yet; the role is chosen, not verified.
+- **Identity is per device:** there's no sign-in yet; the role is chosen, not verified. Anyone can open the app and start
+  calls and chats, so Claude / Agora / Murf spend has no per-user cap; a sign-in is the real fix.
+- **The action ledger is shared ward-wide** (actions and Telegram messages are team work, visible to every role);
+  chat history is not.
 - **Three-language calls** (ARES `en-IN,ta-IN,hi-IN`, auto switching) haven't been measured on many real calls yet;
   Murf `hi-IN` for the Anisha voice is not yet verified on this account. Hinglish in Latin script is treated as English.
 - **Cards and the morning brief** stay English / Tamil; the screen's own words follow the conversation language.

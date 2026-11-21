@@ -30,7 +30,7 @@ def test_start_refuses_when_unconfigured(monkeypatch):
 
 def test_config_issues_rtc_token(monkeypatch):
     _configure(monkeypatch)
-    r = api.get('/api/voice/config', params={'session_id': 'test-v2'}).json()
+    r = api.get('/api/voice/config', params={'session_id': 'test-v2'}, headers={'X-Device-Id': 'test-device-v'}).json()
     assert r['token'] and r['uid'] > 0 and r['agent_uid'] > 0 and r['channel'].startswith('gcc-')
 
 

@@ -30,7 +30,9 @@ class Settings(BaseSettings):
     brief_lang: str = 'ta'
     cron_secret: str = ''
 
-    custom_llm_token: str = ''
+    custom_llm_token: str = ''          # required: unset turns /v1/chat/completions off
+    # Origins allowed to call the API from a browser (comma-separated). Same-origin needs no entry.
+    cors_origins: str = 'https://gcc.publyq.in'
     mcp_token: str = ''                 # bearer token for /mcp (unset = MCP disabled)
 
     # Agora ConvoAI + Murf (voice calls)
@@ -46,6 +48,10 @@ class Settings(BaseSettings):
 
     ward_no: int = 173
     log_level: str = 'INFO'
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(',') if o.strip()]
 
     @property
     def llm_enabled(self) -> bool:

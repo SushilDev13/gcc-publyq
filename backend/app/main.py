@@ -1,4 +1,13 @@
-"""FastAPI app: REST tools, agent turn (SSE), OpenAI-compatible endpoint."""
+"""FastAPI app: REST tools, agent turn (SSE), OpenAI-compatible endpoint.
+
+Who may touch what:
+  - A conversation belongs to the device that started it (a random ID kept in that browser, sent as X-Device-Id).
+    Every endpoint that reads, continues, calls into or confirms actions in a conversation checks that owner;
+    a stranger gets the same 404 as for a conversation that doesn't exist.
+  - The ConvoAI brain, MCP and the cron job each need their own bearer secret; unset means the endpoint is off.
+  - Complaint records, posts and SOPs are GCC's own published data and stay readable.
+"""
+import hmac
 import json
 import logging
 import time
@@ -20,8 +29,34 @@ from .config import settings
 logging.basicConfig(level=settings.log_level, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 log = logging.getLogger('gcc')
 
-app = FastAPI(title='GCC Publyq', version='0.1.0')
-app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])
+app = FastAPI(title='GCC Publyq', version='0.1.0', docs_url=None, redoc_url=None, openapi_url=None)
+# The web app calls the API from its own origin; other origins get no CORS grant. Agora, MCP clients and
+# Vercel Cron call server to server, where CORS doesn't apply.
+app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list, allow_methods=['GET', 'POST', 'DELETE'],
+                   allow_headers=['Content-Type', 'Authorization', 'X-Device-Id'])
+
+SECURITY_HEADERS = {'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY',
+                    'Referrer-Policy': 'strict-origin-when-cross-origin'}
+
+
+def _bearer_ok(request: Request, secret: str) -> bool:
+    """Constant-time bearer check; an unset secret never matches."""
+    got = request.headers.get('authorization', '')
+    return bool(secret) and hmac.compare_digest(got.encode(), f'Bearer {secret}'.encode())
+
+
+def _device(request: Request, device_id: str | None = None) -> str:
+    d = request.headers.get('x-device-id') or device_id or ''
+    if not 8 <= len(d) <= 80:
+        raise HTTPException(401, 'device id required')
+    return d
+
+
+def _claim(session_id: str, device_id: str) -> None:
+    """A conversation is usable only by the device that started it. Unknown IDs are free to start."""
+    c = db.fetchone('SELECT device_id FROM conversations WHERE id = %s', (session_id,))
+    if c and not hmac.compare_digest(c['device_id'].encode(), device_id.encode()):
+        raise HTTPException(404, 'conversation not found')
 
 
 @app.middleware('http')
@@ -29,7 +64,9 @@ async def timing(request: Request, call_next):
     t0 = time.perf_counter()
     resp = await call_next(request)
     ms = (time.perf_counter() - t0) * 1000
-    resp.headers['Server-Timing'] = f'app;dur={ms:.1f}'
+    resp.headers.update(SECURITY_HEADERS)
+    if request.url.path.startswith(('/api/', '/v1/', '/mcp')):
+        resp.headers['Cache-Control'] = resp.headers.get('Cache-Control', 'no-store')
     log.info('%s %s %s %.1fms', request.method, request.url.path, resp.status_code, ms)
     return resp
 
@@ -110,15 +147,23 @@ def actions(status: str | None = None, kind: str | None = None, complaint_id: st
 
 
 @app.post('/api/actions')
-def propose(body: ActionIn):
+def propose(body: ActionIn, request: Request):
+    if body.session_id:                    # a proposal lands in a conversation only its owner can confirm
+        _claim(body.session_id, _device(request))
     return T.propose_action(**body.model_dump())
 
 
 @app.post('/api/actions/{aid}/{op}')
-def transition(aid: int, op: str):
+def transition(aid: int, op: str, request: Request):
     fn = {'confirm': T.confirm_action, 'cancel': T.cancel_action, 'done': T.complete_action}.get(op)
     if not fn:
         raise HTTPException(404, 'op must be confirm, cancel or done')
+    # Only the device whose conversation proposed it may decide (confirming can post to Telegram).
+    dev = _device(request)
+    own = db.fetchone('''SELECT 1 FROM actions a JOIN conversations c ON c.id = a.session_id
+                         WHERE a.id = %s AND c.device_id = %s AND c.deleted_at IS NULL''', (aid, dev))
+    if not own:
+        raise HTTPException(404, 'action not found')
     return fn(aid)
 
 
@@ -129,7 +174,9 @@ def roles():
 
 
 @app.get('/api/conversations')
-def conversations(device_id: str = Query(min_length=8, max_length=80), limit: int = Query(20, ge=1, le=100)):
+def conversations(request: Request, device_id: str | None = Query(None, max_length=80),
+                  limit: int = Query(20, ge=1, le=100)):
+    device_id = _device(request, device_id)
     rows = db.fetchall("""SELECT c.id, c.role_id, c.title, c.created_at, c.updated_at,
                                 (SELECT count(*) FROM turns t WHERE t.session_id = c.id) turns
                          FROM conversations c WHERE c.device_id = %s AND c.deleted_at IS NULL
@@ -146,8 +193,8 @@ def _own_conversation(cid: str, device_id: str) -> dict:
 
 
 @app.get('/api/conversations/{cid}')
-def conversation(cid: str, device_id: str = Query(min_length=8, max_length=80)):
-    c = _own_conversation(cid, device_id)
+def conversation(cid: str, request: Request, device_id: str | None = Query(None, max_length=80)):
+    c = _own_conversation(cid, _device(request, device_id))
     turns = db.fetchall("""SELECT id, text, reply, route, intent, role_id, latency_ms, cards, created_at,
                                  ctx->>'lang' AS lang
                           FROM turns WHERE session_id = %s ORDER BY id""", (cid,))
@@ -155,8 +202,8 @@ def conversation(cid: str, device_id: str = Query(min_length=8, max_length=80)):
 
 
 @app.delete('/api/conversations/{cid}')
-def delete_conversation(cid: str, device_id: str = Query(min_length=8, max_length=80)):
-    _own_conversation(cid, device_id)
+def delete_conversation(cid: str, request: Request, device_id: str | None = Query(None, max_length=80)):
+    _own_conversation(cid, _device(request, device_id))
     db.execute('UPDATE conversations SET deleted_at = now() WHERE id = %s', (cid,))
     return {'ok': True, 'note': 'Hidden from history. Actions it created stay in the action ledger.'}
 
@@ -168,7 +215,7 @@ class VoiceStartIn(BaseModel):
     user_uid: int = Field(gt=0)
     session_id: str = Field(min_length=1, max_length=80)
     role_id: str | None = Field(None, max_length=20)
-    device_id: str = Field(min_length=8, max_length=80)
+    device_id: str | None = Field(None, max_length=80)   # or the X-Device-Id header
     voice: str = Field('anisha', max_length=20)
     lang: str = Field('en', max_length=4)            # the language the agent speaks; it hears all three
     greet_turn_id: int | None = Field(None, gt=0)    # restart to switch language: open with this turn's answer
@@ -192,7 +239,9 @@ def communications(complaint_id: str | None = None):
 
 
 @app.get('/api/voice/config')
-def voice_config(session_id: str = Query(min_length=1, max_length=80)):
+def voice_config(request: Request, session_id: str = Query(min_length=1, max_length=80),
+                 device_id: str | None = Query(None, max_length=80)):
+    _claim(session_id, _device(request, device_id))
     try:
         return voice.connection_config(session_id)
     except voice.VoiceError as e:
@@ -200,11 +249,13 @@ def voice_config(session_id: str = Query(min_length=1, max_length=80)):
 
 
 @app.post('/api/voice/start')
-async def voice_start(body: VoiceStartIn):
+async def voice_start(body: VoiceStartIn, request: Request):
+    dev = _device(request, body.device_id)
+    _claim(body.session_id, dev)
     # register the conversation up front so the call shows in history even before the first turn
     db.execute("""INSERT INTO conversations (id, device_id, role_id, title) VALUES (%s,%s,%s,%s)
                   ON CONFLICT (id) DO UPDATE SET updated_at = now()""",
-               (body.session_id, body.device_id, body.role_id, 'Voice call'))
+               (body.session_id, dev, body.role_id, 'Voice call'))
     hello = None
     if body.greet_turn_id:
         t = db.fetchone('SELECT reply FROM turns WHERE id = %s AND session_id = %s', (body.greet_turn_id, body.session_id))
@@ -236,7 +287,7 @@ async def voice_stop(body: VoiceStopIn):
 async def mcp_endpoint(request: Request):
     if not settings.mcp_token:
         raise HTTPException(503, 'MCP is not enabled on this server')
-    if request.headers.get('authorization', '') != f'Bearer {settings.mcp_token}':
+    if not _bearer_ok(request, settings.mcp_token):
         return JSONResponse({'error': 'unauthorized'}, status_code=401,
                             headers={'WWW-Authenticate': 'Bearer realm="gcc-publyq-mcp"'})
     try:
@@ -261,7 +312,7 @@ def mcp_no_stream():
 
 # ── morning brief (Vercel Cron: GET with Authorization: Bearer $CRON_SECRET) ──
 def _cron_auth(request: Request) -> None:
-    if not settings.cron_secret or request.headers.get('authorization', '') != f'Bearer {settings.cron_secret}':
+    if not _bearer_ok(request, settings.cron_secret):
         raise HTTPException(401, 'unauthorized')
 
 
@@ -302,7 +353,7 @@ class TurnIn(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
     session_id: str = Field(min_length=1, max_length=80)
     role_id: str | None = Field(None, max_length=20)
-    device_id: str | None = Field(None, max_length=80)
+    device_id: str | None = Field(None, max_length=80)   # or the X-Device-Id header
     lang: str | None = Field(None, max_length=4)
 
 
@@ -311,11 +362,13 @@ def _sse(event: str, data: dict) -> str:
 
 
 @app.post('/api/agent/turn')
-async def agent_turn(body: TurnIn):
+async def agent_turn(body: TurnIn, request: Request):
+    dev = _device(request, body.device_id)
+    _claim(body.session_id, dev)          # history and pending actions are read by session: owner only
+
     async def gen():
         try:
-            async for ev, data in run_turn(body.text, body.session_id, 'web', body.role_id, body.device_id,
-                                           body.lang):
+            async for ev, data in run_turn(body.text, body.session_id, 'web', body.role_id, dev, body.lang):
                 yield _sse(ev, data)
         except Exception:
             log.exception('turn failed')
@@ -340,9 +393,11 @@ def _last_user_text(messages: list[dict]) -> str:
 @app.post('/chat/completions')
 async def chat_completions(request: Request, session: str | None = None, role: str | None = None,
                            lang: str | None = None):
-    if settings.custom_llm_token:
-        if request.headers.get('authorization', '') != f'Bearer {settings.custom_llm_token}':
-            raise HTTPException(401, 'bad token')
+    # Fail closed: with no CUSTOM_LLM_TOKEN this endpoint would be free Claude access to the ward records.
+    if not settings.custom_llm_token:
+        raise HTTPException(503, 'voice brain is not configured')
+    if not _bearer_ok(request, settings.custom_llm_token):
+        raise HTTPException(401, 'bad token')
     body = await request.json()
     text = _last_user_text(body.get('messages') or [])
     sid = session or str(body.get('user') or 'convoai')

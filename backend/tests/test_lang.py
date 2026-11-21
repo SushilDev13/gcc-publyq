@@ -76,18 +76,20 @@ def test_restart_opens_with_the_saved_answer(monkeypatch):
     monkeypatch.setattr(voice, 'start', fake_start)
     out = say('what is on my plate today?', 'test-hi2', role='AE-D173')
     tid = out['done']['turn_id']
-    body = {'channel': 'c', 'agent_uid': 3, 'user_uid': 1, 'session_id': 'test-hi2', 'device_id': 'test-device-h',
+    body = {'channel': 'c', 'agent_uid': 3, 'user_uid': 1, 'session_id': 'test-hi2', 'device_id': 'test-device-1',
             'lang': 'en', 'greet_turn_id': tid}
     assert api.post('/api/voice/start', json=body).json()['greeting'] == out['text']
     other = {**body, 'session_id': 'test-hi3'}
     assert api.post('/api/voice/start', json=other).status_code == 404     # only this conversation's turns
+    stranger = {**body, 'device_id': 'test-device-stranger'}
+    assert api.post('/api/voice/start', json=stranger).status_code == 404  # nor another device's conversation
 
 
 def test_call_holds_when_the_speaker_switches_language(monkeypatch):
-    monkeypatch.setattr(settings, 'custom_llm_token', '')
+    monkeypatch.setattr(settings, 'custom_llm_token', 'secret')
     msgs = {'messages': [{'role': 'user', 'content': 'मेरे पास कितनी शिकायतें खुली हैं, बताइए'}], 'stream': True}
     with api.stream('POST', '/v1/chat/completions', params={'session': 'test-hi4', 'role': 'AE-D173', 'lang': 'en'},
-                    json=msgs) as r:
+                    json=msgs, headers={'Authorization': 'Bearer secret'}) as r:
         lines = [json.loads(x[6:]) for x in r.iter_lines() if x.startswith('data: {')]
     spoken = ''.join(c['choices'][0]['delta'].get('content', '') for c in lines)
     assert spoken == voice.HOLD['en']                 # the English voice doesn't attempt Hindi
