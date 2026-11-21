@@ -432,7 +432,8 @@
   // conversation; we poll it to show the same cards the chat shows.
   //
   // Push to talk: the mic stays muted until the person taps it. Tap = start of their turn (unmute, then tell the
-  // agent "start of speech"); tap again = end of turn ("end of speech", then mute). The agent runs in manual turn
+  // agent "start of speech"); tap again = end of turn ("end of speech", then mute). The tap that starts the call is
+  // also the first tap to talk: the turn opens as soon as the agent is in the channel. The agent runs in manual turn
   // mode, so nothing said outside a turn reaches it. The signals go over RTM straight to the agent, in the format
   // Agora's client toolkit uses. Ending the call is its own button.
   const RTC_SDK = 'https://cdn.jsdelivr.net/npm/agora-rtc-sdk-ng@4.24.10/AgoraRTC_N-production.min.js';
@@ -506,7 +507,10 @@
     if (!voiceStatus.ready) { status(t().voiceOff, true); return; }
     if (!convId) { convId = 'c-' + uid(); store.set('conv', convId); }
     $('.hello', feed)?.remove(); $('.pick', feed)?.remove();
-    call = { agentId: null, agentUid: null, client: null, rtm: null, mic: null, poll: null, lang, switching: false, talking: false };
+    call = { agentId: null, agentUid: null, client: null, rtm: null, mic: null, poll: null, lang, switching: false, talking: false,
+      autoTalk: true, agentHeard: false };
+    // the first turn needs both: the agent's id (start returned) and the agent in the channel (its audio arrived)
+    const firstTurn = () => { if (call?.autoTalk && call.agentUid && call.agentHeard) { call.autoTalk = false; setTalking(true); } };
     document.body.classList.add('in-call'); $('#callbar').hidden = false; callState(t().connecting);
     mic.classList.add('live'); mic.setAttribute('aria-pressed', 'false'); mic.setAttribute('aria-label', t().talkIdle);
     try {
@@ -518,7 +522,12 @@
       call.client = client;
       client.on('user-published', async (user, mediaType) => {
         await client.subscribe(user, mediaType);
-        if (mediaType === 'audio') { user.audioTrack.play(); if (call && !call.talking && !call.switching) callState(t().talkIdle); }
+        if (mediaType === 'audio') {
+          user.audioTrack.play();
+          if (call) call.agentHeard = true;
+          if (call && !call.talking && !call.switching) callState(t().talkIdle);
+          firstTurn();
+        }
       });
       await client.join(cfg.app_id, cfg.channel, cfg.token, cfg.uid);
       // the call token covers RTM too (RTC + RTM + ConvoAI), with the same user id
@@ -529,8 +538,9 @@
       await client.publish([call.mic]);
       await startAgent(lang);
       call.poll = setInterval(pollTurns, 1500);
-      callState(t().talkIdle);
       feed.append(h(`<p class="divider">${esc(t().started)}</p>`)); scroll(true);
+      if (!call.talking) callState(t().talkIdle);
+      firstTurn();
     } catch (err) {
       feed.append(h(`<p class="divider bad">${esc(t().failed)}</p>`));
       await endCall({ quiet: true });

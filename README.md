@@ -53,9 +53,9 @@ their most dangerous, oldest and recurring complaint, each one tap from the app.
 
 1. **Sign in with Telegram.** Only members of the Ward 173 Telegram group get in.
 2. **Pick your post** once (Assistant Engineer, Sanitary Inspector, Executive Engineer, …). You can change it any time.
-3. **Tap the big mic** to start a call. You hear a greeting, and your mic stays **off**.
-4. **Tap the mic, speak, tap again.** Only what you say between the two taps is heard, so street and office noise
-   never becomes a question.
+3. **Tap the big mic** to start a call. As soon as it connects, it's listening: just speak.
+4. **Tap again to send.** After that, tap to speak and tap again to send. Only what you say between two taps is heard,
+   so street and office noise never becomes a question.
 5. **Listen to the answer** while the details appear on screen as cards.
 6. **Speak any of the three languages.** Switch from English to Tamil to Hindi mid-call; the answer, the voice and the
    screen follow you.

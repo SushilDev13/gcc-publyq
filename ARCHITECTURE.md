@@ -74,7 +74,7 @@ today, act on it, and be sure nothing happens by mistake.
 
 ## 3. One spoken turn
 
-1. **Push to talk.** The mic is muted until the person taps it. The tap unmutes it and sends the agent a start of
+1. **Push to talk.** The mic is muted until the person taps it; the tap that starts the call counts, and opens the first turn once the agent is in the channel. The tap unmutes it and sends the agent a start of
    speech signal; the next tap sends end of speech and mutes again. The signals go over RTM straight to the agent
    (customType `user.manual_sos` / `user.manual_eos`, body `{"request_id": …}`), as Agora's client toolkit sends
    them, using the call's combined RTC + RTM token. The agent runs with manual start and end of speech.
