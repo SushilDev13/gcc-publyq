@@ -21,8 +21,18 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
+def offline(monkeypatch):
+    """Tests never call Claude or Telegram unless a test stubs them explicitly."""
+    from backend.app.config import settings
+    monkeypatch.setattr(settings, 'anthropic_api_key', '')
+    monkeypatch.setattr(settings, 'bot_token', '')
+    monkeypatch.setattr(settings, 'group_chat_id', '')
+
+
+@pytest.fixture(autouse=True)
 def clean_workspace():
     """Each test starts with an empty workspace ledger; source tables untouched."""
+    db.execute("DELETE FROM communications WHERE session_id LIKE 'test-%'")
     db.execute("DELETE FROM actions WHERE session_id LIKE 'test-%'")
     db.execute("DELETE FROM turns WHERE session_id LIKE 'test-%'")
     db.execute("DELETE FROM conversations WHERE id LIKE 'test-%'")

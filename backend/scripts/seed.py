@@ -94,12 +94,17 @@ def main() -> None:
     wards = rows(O / 'gcc_ward_map.csv')
     sops = rows(O / 'gcc_complaint_sop.csv')
     ladder = rows(O / 'gcc_role_ladder.csv')
+    dictionary = rows(O / 'data_dictionary.csv')
     post_ids = {o['post_id'] for o in offs}
 
     with psycopg.connect(settings.database_url) as db, db.cursor() as cur:
         cur.execute(SCHEMA.read_text())
         cur.execute('DELETE FROM media; DELETE FROM complaint_events; DELETE FROM type_sop_map; '
-                    'DELETE FROM reporting_lines; DELETE FROM ward_map; DELETE FROM role_ladder;')
+                    'DELETE FROM reporting_lines; DELETE FROM ward_map; DELETE FROM role_ladder; '
+                    'DELETE FROM data_dictionary;')
+        for r in dictionary:
+            cur.execute('INSERT INTO data_dictionary VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING',
+                        (r['file'], r['column'], s(r['meaning']), s(r['source'])))
         for r in ladder:
             cur.execute('INSERT INTO role_ladder VALUES (%s,%s,%s,%s,%s,%s)',
                         (r['department_line'], i(r['step']), r['role'], s(r['level']), s(r['hands_up_to']),
@@ -241,7 +246,7 @@ def main() -> None:
         print('complaints without an owner post in records: %s (open %s)' % cur.fetchone())
 
         for t in ('complaints', 'complaint_events', 'media', 'officials', 'reporting_lines', 'ward_map', 'sops',
-                  'type_sop_map', 'role_ladder'):
+                  'type_sop_map', 'role_ladder', 'data_dictionary'):
             cur.execute(f'SELECT count(*) FROM {t}')
             print(f'{t:18} {cur.fetchone()[0]}')
         weak = [(t, v[2], v[1]) for t, v in mapping.items() if v[1] < 0.15]

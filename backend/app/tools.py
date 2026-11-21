@@ -6,6 +6,7 @@ identical whichever front door a request comes through.
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -382,51 +383,72 @@ def detect_locality(text: str) -> str | None:
 
 
 # ── write tools: two-phase (propose -> confirm) ───────────────────────────
-ACTION_KINDS = ('escalate', 'assign', 'note', 'follow_up')
+ACTION_KINDS = ('escalate', 'assign', 'note', 'follow_up', 'status_change', 'close_request', 'help_request')
+REQUESTABLE_STATUS = ('in_progress', 'resolved', 'reopen', 'rejected')
+# Requests that someone else must act on are shared on Telegram by default.
+NOTIFY_DEFAULT = {'escalate', 'assign', 'status_change', 'close_request', 'help_request'}
+VERB = {'escalate': 'Escalate', 'assign': 'Assign', 'note': 'Add note to', 'follow_up': 'Follow up on',
+        'status_change': 'Request status change for', 'close_request': 'Request closure of',
+        'help_request': 'Ask for help on'}
+TITLE = {'escalate': 'Escalation', 'assign': 'Assignment', 'note': 'Field note', 'follow_up': 'Follow-up',
+         'status_change': 'Status change request', 'close_request': 'Close-out request', 'help_request': 'Help needed'}
 
 
 def _action_view(a: dict) -> dict:
     tp = _post(a['target_post_id']) if a.get('target_post_id') else None
     out = {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in a.items()}
     out['target_post'] = tp['post'] if tp else None
-    verb = {'escalate': 'Escalate', 'assign': 'Assign', 'note': 'Add note to', 'follow_up': 'Follow up on'}[a['kind']]
     due = a['due_at'].astimezone(IST).strftime('%a %d %b') if a.get('due_at') else None
-    out['say'] = (f"{verb} {a['complaint_id'] or 'ward'}" + (f" to {tp['post']}" if tp and a['kind'] != 'follow_up'
-                                                             else '') + (f', due {due}' if due else ''))
+    to_status = (a.get('payload') or {}).get('to_status')
+    out['say'] = (f"{VERB[a['kind']]} {a['complaint_id'] or 'ward'}"
+                  + (f" to {to_status.replace('_', ' ')}" if to_status else '')
+                  + (f" to {tp['post']}" if tp and a['kind'] not in ('follow_up', 'status_change') else '')
+                  + (f', due {due}' if due else ''))
     return out
 
 
 def propose_action(kind: str, complaint_id: str, target_post_id: str | None = None, note: str | None = None,
-                   due_in_days: float | None = None, session_id: str | None = None) -> dict:
+                   due_in_days: float | None = None, session_id: str | None = None,
+                   to_status: str | None = None, notify: bool | None = None, role_id: str | None = None) -> dict:
     if kind not in ACTION_KINDS:
         raise ToolError(f'Unknown action "{kind}". I can {", ".join(ACTION_KINDS)}.')
     c = get_complaint(complaint_id)
-    if kind in ('escalate', 'assign') and c['status_group'] != 'open':
-        raise ToolError(f"{c['id']} is already {c['status_group']}; nothing to {kind}.")
-    if kind == 'escalate' and not target_post_id:
-        tgt = c['responsible']['escalate_to']
+    r = c['responsible']
+    if kind in ('escalate', 'assign', 'close_request') and c['status_group'] != 'open':
+        raise ToolError(f"{c['id']} is already {c['status_group']}; nothing to {kind.replace('_', ' ')}.")
+    if kind == 'status_change':
+        if to_status not in REQUESTABLE_STATUS:
+            raise ToolError(f"Which status? I can request: {', '.join(s.replace('_', ' ') for s in REQUESTABLE_STATUS)}.")
+    if kind in ('help_request', 'close_request') and not (note or '').strip():
+        raise ToolError('What should I say? Give me a short reason or what help is needed.')
+    if kind in ('escalate', 'help_request') and not target_post_id:
+        tgt = r['escalate_to']
         if not tgt:
             raise ToolError(f"No higher post found in the records for {c['id']}.")
         target_post_id = tgt['post_id']
-    if kind == 'assign' and not target_post_id:
-        target_post_id = (c['responsible']['owner'] or {}).get('post_id')
+    if kind in ('assign', 'close_request', 'status_change') and not target_post_id:
+        target_post_id = ((r['holder'] or r['owner']) or {}).get('post_id')
     if target_post_id and not _post(target_post_id.upper()):
         raise ToolError(f'No post {target_post_id} in GCC records.')
     if kind == 'follow_up' and due_in_days is None:
         due_in_days = 2
     if kind == 'escalate' and not note:
-        r = c['responsible']
         note = (f"{c['id']} ({c['complaint_type']}, {_place(c)}) open {c['days_open']} days"
                 + (', flagged safety risk' if c['is_safety_risk'] else '')
                 + (f"; held by {r['holder']['post']}" if r['holder'] else '')
                 + (f"; {c['safety_reasons']}" if c['safety_reasons'] else '')
                 + (f". SOP: {c['priority']['tier']} - {c['priority']['say']}" if c['priority'] else '') + '.')
+    notify = (kind in NOTIFY_DEFAULT) if notify is None else bool(notify)
     due_at = now() + timedelta(days=float(due_in_days)) if due_in_days is not None else None
-    a = db.execute("""INSERT INTO actions (complaint_id, kind, target_post_id, note, due_at, session_id)
-                      VALUES (%s,%s,%s,%s,%s,%s) RETURNING *""",
-                   (c['id'], kind, target_post_id.upper() if target_post_id else None, note, due_at, session_id))
+    payload = {k: v for k, v in {'to_status': to_status, 'role_id': role_id}.items() if v}
+    a = db.execute("""INSERT INTO actions (complaint_id, kind, target_post_id, note, due_at, session_id, notify, payload)
+                      VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb) RETURNING *""",
+                   (c['id'], kind, target_post_id.upper() if target_post_id else None, note, due_at, session_id,
+                    notify, json.dumps(payload)))
     v = _action_view(a)
-    v['say'] = f"Ready to {v['say'][0].lower()}{v['say'][1:]}. Say confirm to proceed, or cancel."
+    v['say'] = (f"Ready to {v['say'][0].lower()}{v['say'][1:]}"
+                + (' and post it to the Ward 173 Telegram group' if notify else '')
+                + '. Say confirm to proceed, or cancel.')
     return v
 
 
@@ -440,7 +462,34 @@ def _transition(action_id: int, frm: tuple[str, ...], to: str, ts_col: str) -> d
     return _action_view(a)
 
 
+def telegram_message(a: dict) -> str:
+    """HTML body for Telegram (escaped; record text is untrusted)."""
+    from .roles import BY_ID
+    from .telegram import esc
+    c = db.fetchone('SELECT complaint_type, street, locality, source_url FROM complaints WHERE id = %s',
+                    (a['complaint_id'],)) or {}
+    role = BY_ID.get((a.get('payload') or {}).get('role_id') or '', {}).get('label')
+    to_status = (a.get('payload') or {}).get('to_status')
+    lines = [f"<b>GCC Publyq · Ward 173 · {esc(TITLE[a['kind']])}</b>",
+             f"<b>{esc(a['complaint_id'])}</b> (action #{a['id']}) · {esc(c.get('complaint_type'))}",
+             esc(c.get('street') or c.get('locality') or '')]
+    if to_status:
+        lines.append(f"Requested status: <b>{esc(to_status.replace('_', ' '))}</b>")
+    if a.get('target_post'):
+        lines.append(f"For: {esc(a['target_post'])}")
+    if a.get('note'):
+        lines.append(f"Note: {esc(a['note'])}")
+    if a.get('due_at'):
+        lines.append(f"Due: {esc(str(a['due_at'])[:10])}")
+    lines.append(f"Requested by: {esc(role or 'Ward 173 staff')} via GCC Publyq")
+    if c.get('source_url'):
+        lines.append(f"GCC portal: {esc(c['source_url'])}")
+    lines.append('<i>Recorded in GCC Publyq; GCC portal not updated automatically.</i>')
+    return '\n'.join(lines)
+
+
 def confirm_action(action_id: int) -> dict:
+    from . import telegram
     v = _transition(action_id, ('proposed',), 'confirmed', 'confirmed_at')
     v['say'] = f"Done. Action {v['id']} recorded: {v['say'][0].lower()}{v['say'][1:]}."
     if v['kind'] == 'escalate':
@@ -452,7 +501,20 @@ def confirm_action(action_id: int) -> dict:
                          v['session_id'], v['id']))
         v['follow_up'] = _action_view(fu)
         v['say'] += f" I've set follow-up {fu['id']} for {v['follow_up']['say'].split('due ')[-1]}."
+    if v.get('notify'):
+        sent = telegram.send(telegram_message(v), action_id=v['id'], complaint_id=v['complaint_id'],
+                             session_id=v['session_id'])
+        v['communication'] = sent
+        v['say'] += (' Posted to the Ward 173 Telegram group.' if sent['status'] == 'sent' else
+                     f" Telegram message not delivered ({sent['error']}); it is saved and can be resent.")
     return v
+
+
+def list_communications(complaint_id: str | None = None, limit: int = 20) -> dict:
+    rows = db.fetchall("""SELECT id, action_id, complaint_id, channel, recipient, status, error, created_at, body
+                          FROM communications WHERE (%(c)s::text IS NULL OR complaint_id = %(c)s)
+                          ORDER BY id DESC LIMIT %(l)s""", {'c': complaint_id, 'l': min(int(limit), 50)})
+    return {'items': [{**r, 'created_at': r['created_at'].isoformat()} for r in rows]}
 
 
 def cancel_action(action_id: int) -> dict:

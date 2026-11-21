@@ -1,6 +1,6 @@
 /* GCC Publyq web client — vanilla JS, no build step.
  * Role first: the user picks (or says) which GCC post they are; every answer is scoped to it.
- * Loop: speak/type -> POST /api/agent/turn (SSE) -> stream reply + cards -> speak -> (hands-free) listen again.
+ * Loop: type, or talk over an Agora voice call (Murf Falcon 2.1) -> the same brain -> reply + cards. No browser speech.
  * Conversations are stored server-side per device and can be resumed from History. */
 (() => {
   'use strict';
@@ -131,7 +131,10 @@
           ${a.target_post ? `<dt>To</dt><dd>${esc(a.target_post)}</dd>` : ''}
           ${a.due_at ? `<dt>Due</dt><dd>${esc(fmtDate(a.due_at))}</dd>` : ''}
           ${a.note ? `<dt>Note</dt><dd>${esc(a.note)}</dd>` : ''}
-          ${a.follow_up ? `<dt>Follow-up</dt><dd>#${a.follow_up.id} · ${esc(fmtDate(a.follow_up.due_at))}</dd>` : ''}</dl>
+          ${a.follow_up ? `<dt>Follow-up</dt><dd>#${a.follow_up.id} · ${esc(fmtDate(a.follow_up.due_at))}</dd>` : ''}
+          ${(a.payload || {}).to_status ? `<dt>Requested status</dt><dd>${esc(a.payload.to_status.replace('_', ' '))}</dd>` : ''}
+          ${a.notify && !a.communication && a.status === 'proposed' ? '<dt>Share</dt><dd>Ward 173 Telegram group, after you confirm</dd>' : ''}
+          ${a.communication ? `<dt>Telegram</dt><dd><span class="tag ${a.communication.status === 'sent' ? 'pos' : 'warn'}">${esc(a.communication.status)}</span>${a.communication.error ? ' ' + esc(a.communication.error) : ''}</dd>` : ''}</dl>
         ${pending ? `<div class="act"><button class="primary" data-say="Confirm #${a.id}">Confirm #${a.id}</button><button data-say="Cancel #${a.id}">Cancel</button></div>` : ''}
         <p class="note">Recorded in GCC Publyq, not written to the GCC portal.</p>
       </div>`;
@@ -178,6 +181,20 @@
         ${t.sop ? `<h4>First check</h4><p>${esc(t.sop.diagnose[0] || '')}</p>` : ''}</div>`;
     },
     report(r) { return `<div class="card md">${md(r.markdown)}</div>`; },
+    table(q) {
+      let data = []; try { data = JSON.parse(q.rows_json || '[]'); } catch (_) {}
+      const cols = q.columns || [];
+      const head = cols.map((c) => `<th>${esc(c)}</th>`).join('');
+      const body = data.slice(0, 20).map((r) => `<tr>${cols.map((c) => `<td>${esc(typeof r[c] === 'object' && r[c] !== null ? JSON.stringify(r[c]) : r[c])}</td>`).join('')}</tr>`).join('');
+      return `<div class="card"><h3>Looked up in the records · ${q.row_count} row${q.row_count === 1 ? '' : 's'}${q.truncated ? ' (truncated)' : ''}</h3>
+        <div class="tablewrap"><table class="data"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+        <details class="note"><summary>Query</summary><code>${esc(q.sql || '')}</code></details></div>`;
+    },
+    communications(c) {
+      const li = c.items.map((m) => `<li><span class="tag ${m.status === 'sent' ? 'pos' : 'warn'}">${esc(m.status)}</span>
+        ${esc(m.recipient)} · ${esc(fmtDate(m.created_at))}${m.complaint_id ? ' · ' + esc(m.complaint_id) : ''}${m.error ? ` · <span class="note">${esc(m.error)}</span>` : ''}</li>`).join('');
+      return `<div class="card"><h3>Telegram messages</h3><ul class="timeline">${li || '<li class="note">None sent yet.</li>'}</ul></div>`;
+    },
     summary(s) { return `<div class="card"><h3>Ward ${s.ward_no}</h3><p>${s.open} open · ${s.open_overdue} overdue · ${s.open_safety} safety risk</p></div>`; },
   };
   const card = (c) => (R[c.type] ? h(R[c.type](c) || '<span hidden></span>') : null);
@@ -231,7 +248,7 @@
     if (call) endCall();
     seenTurns.clear();
     convId = 'c-' + uid(); store.set('conv', convId);
-    stopSpeaking(); stopListening(); queue.length = 0; renderQueue();
+    queue.length = 0; renderQueue();
     showHello();
   }
 
@@ -272,56 +289,6 @@
     } catch (_) { list.innerHTML = '<li class="note">Couldn\'t load history.</li>'; }
   }
   const closeHistory = () => { $('#historySheet').hidden = true; };
-
-  // ── speech out ─────────────────────────────────────────────────────────
-  const synth = window.speechSynthesis;
-  let voice = null;
-  const pickVoice = () => { const vs = synth ? synth.getVoices() : []; voice = vs.find((v) => v.lang === 'en-IN') || vs.find((v) => v.lang.startsWith('en')) || null; };
-  if (synth) { pickVoice(); synth.onvoiceschanged = pickVoice; }
-  const stopSpeaking = () => { if (synth) synth.cancel(); mic.classList.remove('speaking'); };
-  function speak(text, then) {
-    if (!synth || !$('#speak').checked || !text || call) { then && then(); return; }
-    synth.cancel();
-    const u = new SpeechSynthesisUtterance(text.replace(/(\d{4})-(\d{3})([A-Z]{3})/g, '$1 $2 $3').replace(/#(\d+)/g, 'number $1'));
-    if (voice) u.voice = voice;
-    u.lang = voice ? voice.lang : 'en-IN';
-    u.rate = 1.05;
-    u.onstart = () => mic.classList.add('speaking');
-    u.onend = () => { mic.classList.remove('speaking'); then && then(); };
-    u.onerror = () => mic.classList.remove('speaking');
-    synth.speak(u);
-  }
-
-  // ── speech in ──────────────────────────────────────────────────────────
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let rec = null, listening = false;
-  if (SR) {
-    rec = new SR();
-    rec.lang = 'en-IN'; rec.interimResults = true; rec.continuous = false;
-    rec.onresult = (e) => {
-      let txt = '', final = false;
-      for (const r of e.results) { txt += r[0].transcript; final = final || r.isFinal; }
-      input.value = txt;
-      if (final) { stopListening(); if (/^\s*(stop listening|hands.?free off)\s*$/i.test(txt)) { $('#handsfree').checked = false; input.value = ''; return; } send(txt); }
-    };
-    rec.onerror = (e) => { stopListening(); if (e.error === 'not-allowed') { status('Microphone blocked — type instead', true); $('#handsfree').checked = false; } };
-    rec.onend = () => stopListening();
-  } else {
-    mic.disabled = true;
-    mic.title = 'Voice input is not supported in this browser — type instead';
-    $('#handsfree').disabled = true;
-  }
-  function startListening() {
-    if (!rec || listening) return;
-    stopSpeaking(); // barge-in
-    try { rec.start(); listening = true; mic.classList.add('live'); mic.setAttribute('aria-pressed', 'true'); input.placeholder = 'Listening…'; } catch (_) {}
-  }
-  function stopListening() {
-    if (!listening) return;
-    listening = false; mic.classList.remove('live'); mic.setAttribute('aria-pressed', 'false'); input.placeholder = 'Speak or type…';
-    try { rec.stop(); } catch (_) {}
-  }
-  mic.addEventListener('click', () => (listening ? stopListening() : startListening()));
 
   // ── the turn (queued, never dropped) ───────────────────────────────────
   const queue = [];
@@ -381,11 +348,7 @@
     }
     busy = false;
     scroll();
-    const next = () => {
-      if (queue.length) { const q = queue.shift(); renderQueue(); run(q); }
-      else if ($('#handsfree').checked && !call) startListening();
-    };
-    speak(said, next); // calls next() itself when speech is off or finished
+    if (queue.length) { const q = queue.shift(); renderQueue(); run(q); }
   }
 
   // ── Agora voice call (primary voice path) ──────────────────────────────
@@ -409,16 +372,17 @@
   async function startCall() {
     if (call) return;
     if (!voiceStatus.ready) { status(`Voice calls need: ${voiceStatus.missing.join(', ')}`, true); return; }
-    stopListening(); stopSpeaking();
     if (!convId) { convId = 'c-' + uid(); store.set('conv', convId); }
     $('.hello', feed)?.remove(); $('.pick', feed)?.remove();
     call = { agentId: null, client: null, mic: null, poll: null };
     document.body.classList.add('in-call'); $('#callbar').hidden = false; callState('Connecting…');
+    mic.classList.add('live'); mic.setAttribute('aria-pressed', 'true'); mic.setAttribute('aria-label', 'End voice call');
     try {
       await loadScript(RTC_SDK);
       const cfg = await api(`/api/voice/config?session_id=${encodeURIComponent(convId)}`);
       const started = await api('/api/voice/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel: cfg.channel, agent_uid: cfg.agent_uid, user_uid: cfg.uid, session_id: convId, role_id: roleId, device_id: DEVICE }) });
+        body: JSON.stringify({ channel: cfg.channel, agent_uid: cfg.agent_uid, user_uid: cfg.uid, session_id: convId, role_id: roleId, device_id: DEVICE, voice: $('#voice').value }) });
+      $('#callVoice').textContent = `Agora · Murf Falcon 2.1 · ${started.voice}`;
       call.agentId = started.agent_id;
       const client = window.AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
       call.client = client;
@@ -444,6 +408,7 @@
     call = null;
     clearInterval(c.poll);
     document.body.classList.remove('in-call'); $('#callbar').hidden = true;
+    mic.classList.remove('live'); mic.setAttribute('aria-pressed', 'false'); mic.setAttribute('aria-label', 'Start voice call');
     try { if (c.mic) { c.mic.stop(); c.mic.close(); } } catch (_) {}
     try { if (c.client) await c.client.leave(); } catch (_) {}
     if (c.agentId) api('/api/voice/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: c.agentId }) }).catch(() => {});
@@ -485,7 +450,7 @@
       return openHistory();
     }
     const act = t.dataset.act;
-    if (act === 'call') startCall();
+    if (act === 'call') call ? endCall() : startCall();
     else if (act === 'endcall') endCall();
     else if (act === 'new') newConversation();
     else if (act === 'history') openHistory();
@@ -493,8 +458,9 @@
     else if (act === 'roles') showRolePicker();
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeHistory(); });
-  $('#handsfree').addEventListener('change', (e) => { store.set('handsfree', e.target.checked ? '1' : null); if (e.target.checked && !busy) startListening(); });
-  $('#handsfree').checked = store.get('handsfree') === '1' && !!rec;
+  const voiceSel = $('#voice');
+  if (['anisha', 'abhinav'].includes(store.get('voice'))) voiceSel.value = store.get('voice');
+  voiceSel.addEventListener('change', () => store.set('voice', voiceSel.value));
 
   // ── boot ───────────────────────────────────────────────────────────────
   function status(text, bad) { statusEl.textContent = text; statusEl.className = 'status' + (bad ? ' bad' : ''); }
@@ -503,11 +469,10 @@
       const [hRes, rRes, vRes] = await Promise.all([fetch(`${API}/api/health`), fetch(`${API}/api/roles`), fetch(`${API}/api/voice/status`)]);
       const hd = await hRes.json();
       voiceStatus = await vRes.json().catch(() => voiceStatus);
-      const cb = $('#callBtn');
-      cb.setAttribute('aria-disabled', String(!voiceStatus.ready));
-      cb.title = voiceStatus.ready ? 'Voice call (Agora ConvoAI + Murf Falcon)' : `Voice call not configured: ${voiceStatus.missing.join(', ')}`;
+      mic.setAttribute('aria-disabled', String(!voiceStatus.ready));
+      mic.title = voiceStatus.ready ? 'Talk to GCC Publyq (Agora voice, Murf Falcon 2.1)' : `Voice not configured: ${voiceStatus.missing.join(', ')}`;
       roles = (await rRes.json()).roles;
-      status(hd.ok ? `${hd.complaints} records · ${hd.llm ? 'AI on' : 'fast mode'}` : 'database down', !hd.ok);
+      status(hd.ok ? `${hd.complaints} records · ${voiceStatus.llm ? 'Claude on' : 'no LLM key'} · Telegram ${voiceStatus.telegram ? 'on' : 'off'}` : 'database down', !hd.ok);
     } catch (_) { status('offline', true); }
     if (roleId && roleOf(roleId)) setRole(roleId); else roleId = null;
     if (!(convId && await loadConversation(convId).catch(() => false))) { convId = null; roleId ? showHello() : showRolePicker(); }

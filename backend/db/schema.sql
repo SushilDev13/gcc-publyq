@@ -223,3 +223,50 @@ CREATE TABLE IF NOT EXISTS conversations (
 CREATE INDEX IF NOT EXISTS conversations_device_idx ON conversations (device_id, updated_at DESC);
 ALTER TABLE turns ADD COLUMN IF NOT EXISTS cards jsonb;
 ALTER TABLE turns ADD COLUMN IF NOT EXISTS role_id text;
+
+-- column meanings and provenance, from Officials/data_dictionary.csv
+CREATE TABLE IF NOT EXISTS data_dictionary (
+  file     text NOT NULL,
+  col      text NOT NULL,
+  meaning  text,
+  source   text,
+  PRIMARY KEY (file, col)
+);
+
+-- workspace actions also cover status-change, close and help requests.
+-- GCC has no write API, so these are *requests* tracked here and shared on Telegram.
+ALTER TABLE actions DROP CONSTRAINT IF EXISTS actions_kind_check;
+ALTER TABLE actions ADD CONSTRAINT actions_kind_check
+  CHECK (kind IN ('escalate','assign','note','follow_up','status_change','close_request','help_request'));
+ALTER TABLE actions ADD COLUMN IF NOT EXISTS notify boolean NOT NULL DEFAULT false;
+
+-- every outbound message the platform sends (or tried to send), for the audit trail
+CREATE TABLE IF NOT EXISTS communications (
+  id           bigserial PRIMARY KEY,
+  action_id    bigint REFERENCES actions(id),
+  complaint_id text REFERENCES complaints(id),
+  channel      text NOT NULL CHECK (channel IN ('telegram')),
+  recipient    text NOT NULL,                 -- e.g. 'Ward 173 Telegram group'
+  body         text NOT NULL,
+  status       text NOT NULL CHECK (status IN ('sent','failed','not_configured')),
+  provider_ref text,                          -- Telegram message_id
+  error        text,
+  session_id   text,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS communications_complaint_idx ON communications (complaint_id, created_at);
+
+-- read-only role the LLM's SQL investigations run under (SELECT on records only)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'gcc_reader') THEN
+    CREATE ROLE gcc_reader NOLOGIN;
+  END IF;
+END $$;
+GRANT USAGE ON SCHEMA public TO gcc_reader;
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM gcc_reader;
+GRANT SELECT ON complaints, complaint_events, media, officials, reporting_lines, ward_map, sops,
+                type_sop_map, role_ladder, data_dictionary, actions, communications TO gcc_reader;
+DO $$ BEGIN
+  EXECUTE format('GRANT gcc_reader TO %I', current_user);
+EXCEPTION WHEN others THEN NULL;  -- already granted / insufficient privilege: SET ROLE will report it
+END $$;

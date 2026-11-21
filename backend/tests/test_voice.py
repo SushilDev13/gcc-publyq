@@ -56,7 +56,8 @@ def test_agent_is_wired_to_brain_and_murf(monkeypatch):
     llm, tts = llm_v.to_config(), tts_v.to_config()
     assert llm['url'] == 'https://gcc.example.test/v1/chat/completions?session=test-v3&role=AEL-D173'
     assert llm['api_key'] == 'tok'
-    assert tts['vendor'] == 'murf' and tts['params']['model'] == 'FALCON'
+    assert tts['vendor'] == 'murf' and tts['params']['model'] == 'falcon-2.1'
+    assert tts['params']['voiceId'] == 'en-IN-anisha' and tts['params']['locale'] == 'en-IN'
     assert captured['session']['remote_uids'] == ['11']
     hist = api.get('/api/conversations', params={'device_id': 'test-device-v'}).json()['items']
     assert any(c['id'] == 'test-v3' for c in hist)            # call appears in history
@@ -65,3 +66,20 @@ def test_agent_is_wired_to_brain_and_murf(monkeypatch):
 def test_greeting_honest_for_empty_queue():
     assert 'Nothing is open' in voice.greeting('AEL-D173')
     assert '80 open complaints' in voice.greeting('AE-D173')
+
+
+def test_voice_choice_and_stt(monkeypatch):
+    _configure(monkeypatch)
+    stt, _, tts = voice.vendors('s', None, 'hi', 'abhinav')
+    assert tts.to_config()['params']['voiceId'] == 'en-IN-abhinav' and stt.to_config()['vendor'] == 'ares'
+    import pytest
+    with pytest.raises(voice.VoiceError):
+        voice.vendors('s', None, 'hi', 'matthew')
+    body = {'channel': 'c', 'agent_uid': 2, 'user_uid': 1, 'session_id': 'test-v9', 'device_id': 'test-device-v',
+            'voice': 'matthew'}
+    assert api.post('/api/voice/start', json=body).status_code == 503
+
+
+def test_status_lists_voices():
+    s = api.get('/api/voice/status').json()
+    assert [v['key'] for v in s['voices']] == ['anisha', 'abhinav'] and s['default_voice'] == 'anisha'

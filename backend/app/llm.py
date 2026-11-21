@@ -1,70 +1,53 @@
-"""Minimal streaming client for any OpenAI-compatible chat-completions API.
+"""Claude via the official Anthropic SDK: one streamed request per tool round.
 
-One function, no SDK: yields ('content', str) deltas as they arrive and a
-final ('tool_calls', [...]) if the model asked for tools. Swapping provider
-is LLM_BASE_URL / LLM_MODEL / LLM_API_KEY only.
+`stream_round` yields ('text', str) as tokens arrive, then ('final', message).
+The caller runs the tools and loops (manual loop: we need our own approval
+gate and per-token streaming to voice and chat).
 """
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncIterator
 
-import httpx
+import anthropic
 
 from .config import settings
 
-_client: httpx.AsyncClient | None = None
-
-
-def client() -> httpx.AsyncClient:
-    global _client
-    if _client is None or _client.is_closed:
-        _client = httpx.AsyncClient(timeout=httpx.Timeout(settings.llm_timeout_s, connect=5.0))
-    return _client
+_client: anthropic.AsyncAnthropic | None = None
+BETAS = ['server-side-fallback-2026-07-01']   # server-side refusal fallback ("default" routing)
 
 
 class LLMError(RuntimeError):
     pass
 
 
-async def stream_chat(messages: list[dict], tools: list[dict] | None = None,
-                      temperature: float = 0.2, max_tokens: int = 400) -> AsyncIterator[tuple[str, object]]:
+def client() -> anthropic.AsyncAnthropic:
+    global _client
+    if _client is None:
+        _client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, timeout=settings.llm_timeout_s,
+                                           max_retries=1)
+    return _client
+
+
+async def stream_round(system: list[dict], messages: list[dict], tools: list[dict],
+                       max_tokens: int = 16000) -> AsyncIterator[tuple[str, object]]:
     if not settings.llm_enabled:
         raise LLMError('LLM not configured')
-    body = {'model': settings.llm_model, 'messages': messages, 'stream': True,
-            'temperature': temperature, 'max_tokens': max_tokens}
-    if tools:
-        body['tools'] = tools
-        body['tool_choice'] = 'auto'
-    url = settings.llm_base_url.rstrip('/') + '/chat/completions'
-    headers = {'Authorization': f'Bearer {settings.llm_api_key}', 'Content-Type': 'application/json'}
-    calls: dict[int, dict] = {}
     try:
-        async with client().stream('POST', url, json=body, headers=headers) as r:
-            if r.status_code >= 400:
-                detail = (await r.aread()).decode(errors='replace')[:300]
-                raise LLMError(f'LLM HTTP {r.status_code}: {detail}')
-            async for line in r.aiter_lines():
-                if not line.startswith('data:'):
-                    continue
-                data = line[5:].strip()
-                if data == '[DONE]':
-                    break
-                try:
-                    chunk = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-                for ch in chunk.get('choices') or []:
-                    d = ch.get('delta') or {}
-                    if d.get('content'):
-                        yield 'content', d['content']
-                    for tc in d.get('tool_calls') or []:
-                        slot = calls.setdefault(tc.get('index', 0), {'id': '', 'name': '', 'arguments': ''})
-                        slot['id'] = tc.get('id') or slot['id']
-                        fn = tc.get('function') or {}
-                        slot['name'] += fn.get('name') or ''
-                        slot['arguments'] += fn.get('arguments') or ''
-    except httpx.HTTPError as e:
-        raise LLMError(f'LLM transport error: {type(e).__name__}') from e
-    if calls:
-        yield 'tool_calls', [calls[k] for k in sorted(calls)]
+        async with client().beta.messages.stream(
+            model=settings.llm_model, max_tokens=max_tokens, system=system, messages=messages, tools=tools,
+            output_config={'effort': settings.llm_effort}, betas=BETAS, fallbacks='default',
+        ) as stream:
+            async for event in stream:
+                if event.type == 'text':
+                    yield 'text', event.text
+            yield 'final', await stream.get_final_message()
+    except ValueError as e:      # tool input JSON the SDK could not parse at all
+        raise LLMError(f'unparseable tool input: {e}') from e
+    except anthropic.AuthenticationError as e:
+        raise LLMError('Anthropic API key rejected') from e
+    except anthropic.RateLimitError as e:
+        raise LLMError('Anthropic rate limit') from e
+    except anthropic.APIConnectionError as e:
+        raise LLMError('cannot reach Anthropic API') from e
+    except anthropic.APIStatusError as e:
+        raise LLMError(f'Anthropic API error {e.status_code}') from e

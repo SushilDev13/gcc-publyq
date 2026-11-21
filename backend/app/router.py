@@ -87,6 +87,27 @@ PATTERN_WORDS = ('recurring', 'patterns?', 'hotspots?', 'keeps? coming', 'comes?
                  'again and again', 'trends?', 'chronic')
 
 
+def control(text: str, ctx: dict, session_id: str | None) -> tuple[Reply | None, str, str | None]:
+    """Always-on deterministic layer: role intros and confirm/cancel. Writes and identity are never left to the
+    LLM's interpretation. Returns (reply or None, text without the role intro, newly named role or None)."""
+    new_role, rest = R.detect_role(text)
+    role_id = new_role or ctx.get('role')
+    if new_role and not rest.strip(' ?.!'):
+        role = R.BY_ID[role_id]
+        q = T.my_queue(R.scope(role_id), role['label'], leadership=role['kind'] != 'field')
+        return (Reply(say=f"Okay, {role['label']}. " + q['say'], intent='set_role', role=role_id,
+                      cards=[{'type': 'queue', **q}], ids=[i['id'] for i in q['items']], tools=['my_queue']),
+                rest, new_role)
+    body = rest if new_role else text
+    raw = body.strip()
+    if CONFIRM_ID.match(raw) or CONFIRM.match(raw) or CANCEL.match(raw):
+        reply = _route(body, {**ctx, 'role': role_id}, session_id)
+        if reply and new_role:
+            reply.role = new_role
+        return reply, body, new_role
+    return None, body, new_role
+
+
 def route(text: str, ctx: dict, session_id: str | None) -> Reply | None:
     role_id = ctx.get('role')
     new_role, rest = R.detect_role(text)

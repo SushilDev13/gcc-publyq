@@ -12,11 +12,16 @@ class Settings(BaseSettings):
     database_url: str = 'postgresql://gcc@localhost:5444/gcc'
     db_pool_max: int = 4
 
-    llm_base_url: str = ''
-    llm_model: str = ''
-    llm_api_key: str = ''
-    llm_timeout_s: float = 20.0
-    llm_max_tool_rounds: int = 4
+    # Claude (the brain): official Anthropic SDK
+    anthropic_api_key: str = ''
+    llm_model: str = 'claude-opus-5-5'
+    llm_effort: str = 'low'             # voice latency; raise for deeper investigations
+    llm_timeout_s: float = 30.0
+    llm_max_tool_rounds: int = 6
+
+    # Telegram: the only outbound channel
+    bot_token: str = ''
+    group_chat_id: str = ''
 
     custom_llm_token: str = ''
 
@@ -24,8 +29,8 @@ class Settings(BaseSettings):
     agora_app_id: str = ''
     agora_app_certificate: str = ''
     murf_api_key: str = ''
-    murf_voice_id: str = 'Matthew'      # Agora's documented Murf sample voice
-    murf_locale: str = 'en-US'
+    murf_voice_id: str = 'en-IN-anisha'  # default; en-IN-abhinav selectable
+    murf_locale: str = 'en-IN'
     public_base_url: str = ''           # https URL Agora's cloud uses to reach /v1/chat/completions
 
     media_dir: str = 'Complaints/Images'
@@ -36,7 +41,7 @@ class Settings(BaseSettings):
 
     @property
     def llm_enabled(self) -> bool:
-        return bool(self.llm_base_url and self.llm_model and self.llm_api_key)
+        return bool(self.anthropic_api_key and self.llm_model)
 
     @property
     def media_path(self) -> Path:

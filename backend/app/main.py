@@ -167,6 +167,7 @@ class VoiceStartIn(BaseModel):
     session_id: str = Field(min_length=1, max_length=80)
     role_id: str | None = Field(None, max_length=20)
     device_id: str = Field(min_length=8, max_length=80)
+    voice: str = Field('anisha', max_length=20)
 
 
 class VoiceStopIn(BaseModel):
@@ -175,7 +176,14 @@ class VoiceStopIn(BaseModel):
 
 @app.get('/api/voice/status')
 def voice_status():
-    return voice.configured()
+    return {**voice.configured(), 'voices': [{'key': k, **v} for k, v in voice.VOICES.items()],
+            'default_voice': voice.DEFAULT_VOICE, 'llm': settings.llm_enabled,
+            'telegram': bool(settings.bot_token and settings.group_chat_id)}
+
+
+@app.get('/api/communications')
+def communications(complaint_id: str | None = None):
+    return T.list_communications(complaint_id)
 
 
 @app.get('/api/voice/config')
@@ -193,7 +201,8 @@ async def voice_start(body: VoiceStartIn):
                   ON CONFLICT (id) DO UPDATE SET updated_at = now()""",
                (body.session_id, body.device_id, body.role_id, 'Voice call'))
     try:
-        return await voice.start(body.channel, body.agent_uid, body.user_uid, body.session_id, body.role_id)
+        return await voice.start(body.channel, body.agent_uid, body.user_uid, body.session_id, body.role_id,
+                                 body.voice)
     except voice.VoiceError as e:
         raise HTTPException(503, str(e))
     except Exception as e:

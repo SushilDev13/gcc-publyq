@@ -5,8 +5,11 @@ server/src/agent.py + server.py): same token builder, turn detection, RTM data
 channel and start/stop lifecycle. Changed only the documented vendor blocks:
   - LLM  -> our own brain at /v1/chat/completions (OpenAI-style, role + session
             passed in the URL, CUSTOM_LLM_TOKEN as the bearer key)
-  - TTS  -> Murf, model FALCON (params per docs.agora.io .../tts/murf)
-  - STT  -> unchanged Agora-managed Deepgram nova-3 (en)
+  - TTS  -> Murf Falcon 2.1 (model "falcon-2.1", the only model Murf serves
+            over its stream-input WebSocket), voice en-IN-anisha (default) or
+            en-IN-abhinav, locale en-IN
+  - STT  -> Agora ARES, language en-IN. The managed Deepgram preset timed out
+            on this project (agent-error asr 1000); ARES is Agora's own engine.
 """
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ from urllib.parse import urlencode
 from agora_agent import Area, AsyncAgora
 from agora_agent.agentkit import Agent as AgoraAgent
 from agora_agent.agentkit.token import generate_convo_ai_token
-from agora_agent.agentkit.vendors import DeepgramSTT, MurfTTS, OpenAI
+from agora_agent.agentkit.vendors import AresSTT, MurfTTS, OpenAI
 
 from . import roles as R
 from .config import settings
@@ -29,6 +32,13 @@ log = logging.getLogger('gcc.voice')
 # requires instructions; keep it truthful in case it is ever surfaced.
 INSTRUCTIONS = ('You are GCC Publyq, a voice assistant for Greater Chennai Corporation Ward 173 staff. '
                 'Answers come from the connected GCC Publyq service.')
+
+
+# Murf voices verified on this account via GET /v1/speech/voices (both en-IN, Conversational).
+VOICES = {'anisha': {'id': 'en-IN-anisha', 'label': 'Anisha (en-IN, female)'},
+          'abhinav': {'id': 'en-IN-abhinav', 'label': 'Abhinav (en-IN, male)'}}
+DEFAULT_VOICE = 'anisha'
+LANGUAGE = 'en-IN'
 
 
 class VoiceError(RuntimeError):
@@ -69,31 +79,34 @@ def greeting(role_id: str | None) -> str:
     return f"Hello {r['label']}. Nothing is open on your desk. Ask me about patterns, a complaint, or a new report."
 
 
-def vendors(session_id: str, role_id: str | None, hello: str):
+def vendors(session_id: str, role_id: str | None, hello: str, voice: str = DEFAULT_VOICE):
     """STT / LLM / TTS blocks of the agent (the only part changed from the quickstart)."""
     brain_url = (settings.public_base_url.rstrip('/') + '/v1/chat/completions?'
                  + urlencode({'session': session_id, **({'role': role_id} if role_id else {})}))
     llm = OpenAI(api_key=settings.custom_llm_token, base_url=brain_url, model='gcc-publyq',
                  greeting_message=hello, failure_message='Sorry, I could not reach the ward records. Please try again.',
                  max_history=10)
-    tts = MurfTTS(key=settings.murf_api_key, model='FALCON', voice_id=settings.murf_voice_id,
-                  locale=settings.murf_locale, base_url='wss://global.api.murf.ai/v1/speech/stream-input',
-                  sample_rate=24000)
-    stt = DeepgramSTT(model='nova-3', language='en')
+    if voice not in VOICES:
+        raise VoiceError(f"Unknown voice {voice!r}; choose {', '.join(VOICES)}")
+    tts = MurfTTS(key=settings.murf_api_key, model='falcon-2.1', voice_id=VOICES[voice]['id'], locale=LANGUAGE,
+                  base_url='wss://global.api.murf.ai/v1/speech/stream-input', sample_rate=24000)
+    stt = AresSTT(keywords=['Adyar', 'Kasturba Nagar', 'Indira Nagar', 'Gandhi Nagar', 'Thiruvanmiyur',
+                            'Kamaraj Nagar', 'Venkatarathinam Nagar', 'escalate', 'sanitary inspector'])
     return stt, llm, tts
 
 
-async def start(channel: str, agent_uid: int, user_uid: int, session_id: str, role_id: str | None) -> dict:
+async def start(channel: str, agent_uid: int, user_uid: int, session_id: str, role_id: str | None,
+                voice: str = DEFAULT_VOICE) -> dict:
     cfg = configured()
     if not cfg['ready']:
         raise VoiceError('Voice is not configured: missing ' + ', '.join(cfg['missing']))
     role_id = role_id if role_id in R.BY_ID else None
     hello = greeting(role_id)
-    stt, llm, tts = vendors(session_id, role_id, hello)
+    stt, llm, tts = vendors(session_id, role_id, hello, voice)
     agent = AgoraAgent(
         client=_client(), instructions=INSTRUCTIONS, greeting=hello,
         failure_message='Sorry, I could not reach the ward records. Please try again.', max_history=50,
-        turn_detection={'config': {
+        turn_detection={'language': LANGUAGE, 'config': {
             'speech_threshold': 0.5,
             'start_of_speech': {'mode': 'vad', 'vad_config': {'interrupt_duration_ms': 160, 'prefix_padding_ms': 300}},
             'end_of_speech': {'mode': 'vad', 'vad_config': {'silence_duration_ms': 480}},
@@ -107,7 +120,7 @@ async def start(channel: str, agent_uid: int, user_uid: int, session_id: str, ro
                                          enable_string_uid=False, idle_timeout=30, expires_in=3600)
     agent_id = await session.start()
     log.info('voice agent started agent_id=%s channel=%s role=%s', agent_id, channel, role_id)
-    return {'agent_id': agent_id, 'channel': channel, 'greeting': hello}
+    return {'agent_id': agent_id, 'channel': channel, 'greeting': hello, 'voice': VOICES[voice]['label']}
 
 
 async def stop(agent_id: str) -> None:
