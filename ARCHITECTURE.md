@@ -1,172 +1,133 @@
 # GCC Publyq — Architecture
 
-A voice-first workplace assistant for Greater Chennai Corporation ward staff.
-It answers questions about Ward 173 from real records, and it **does work**:
-it triages new complaints, finds the responsible post, recommends SOP steps,
-escalates, schedules follow-ups and writes completion reports — every write
-gated behind an explicit spoken or tapped confirmation.
+The plain-English overview is in [README.md](README.md). This document covers how the system is put
+together, why, and what was deliberately left out.
 
-Separate from `app.publyq.in`: independent repo, independent database, no
-shared credentials. It borrows only the visual design system (copied tokens).
+## 1. Principles
 
----
+1. **Every component must carry its weight.** No queue, cache, vector store, ORM or agent framework: Postgres
+   and a few hundred lines of Python carry the whole load.
+2. **One brain, many front doors.** Voice (Agora), the web chat, and MCP clients all call the same tool
+   functions, with the same role scoping, guards and two-step writes.
+3. **Facts come from records; writes come from people.** The LLM reads (and writes its own read-only SQL);
+   only the user's own words confirm an action, and that check is plain code.
+4. **Honest about limits.** GCC's portal has no write API, so actions are recorded here and shared on
+   Telegram, and the UI says so.
 
-## 1. First principles
-
-What is the job? A ward engineer or sanitary inspector needs to go from
-*"what's burning in my ward?"* to *"it's escalated and I'll be reminded"* in
-under a minute, hands busy, on a phone.
-
-So the system needs exactly four things:
-
-1. **Ears and a mouth** — speech in, speech out, fast enough to feel like a call.
-2. **Facts** — the ward's complaints, officer actions, posts, reporting lines, SOPs, photos.
-3. **Judgement** — turning a sentence into the right lookup or action.
-4. **Hands** — durable, auditable writes (escalate, assign, follow up, report).
-
-Everything else is optional. Each component below exists because it carries
-one of those four.
-
-## 2. Final architecture
+## 2. Components
 
 ```
-                 ┌──────────────────────── Agora ConvoAI Engine ────────────────────────┐
- Phone/Browser ──┤  RTC audio ─► ASR (ares / sarvam) ─► LLM = custom ─► TTS = murf ─► RTC │──► speaker
-  (gcc.publyq.in)└───────────────────────────────┬──────────────────────────────────────┘
-        │                                         │ POST /v1/chat/completions (OpenAI-style, SSE)
-        │ text / fallback voice                   ▼
-        │ POST /api/agent/turn (SSE)   ┌──────────────────────────────┐      ┌──────────────┐
-        └─────────────────────────────►│  FastAPI "brain" (Vercel fn)  │─SQL─►│ Neon Postgres │
-                                       │  1. fast-path intent router   │      └──────────────┘
-                                       │  2. LLM tool loop (fallback)  │──► upstream LLM
-                                       │  3. tools = domain functions  │    (OpenAI-compatible)
-                                       └──────────────────────────────┘
+ Browser / phone ──RTC audio──► Agora ConvoAI ──────────────────────────────┐
+   │                            ARES STT (en-IN | ta-IN)                    │ POST /v1/chat/completions
+   │                            Murf Falcon 2.1 TTS (Anisha | Abhinav)      │ ?session&role&lang (bearer)
+   │                                                                        ▼
+   ├── text chat (SSE) ──► POST /api/agent/turn ──►┌──────────── FastAPI on Vercel (iad1) ────────────┐
+   │                                               │ agent.run_turn                                   │
+   │                                               │   1. control: role intro, confirm/cancel (code)  │
+   │                                               │   2. Claude Opus 5.5 tool loop (streaming)       │
+   │                                               │   3. deterministic router if Claude unavailable  │
+   ├── GET /api/conversations/{id} (call view) ◄──│ tools.py · dbquery.py · publyq.py · roles.py     │
+   │                                               └───────┬──────────────┬──────────────┬────────────┘
+ MCP client ── POST /mcp (bearer) ────────────────────────►│              │              │
+ Vercel Cron 07:00 IST ── /api/cron/morning-brief ────────►│              ▼              ▼
+                                                     Neon Postgres   Telegram     app.publyq.in
+                                                     (records +      (Ward 173    (deep links,
+                                                      workspace)      group)       read-only)
 ```
 
-**One brain, two front doors.** The same agent code answers:
+| Module | Role |
+|---|---|
+| `agent.py` | One turn: control layer → Claude with 15 tools (manual streaming loop) → fallback. Saves every turn. |
+| `router.py` | Deterministic intents: role intros, confirm/cancel (English and Tamil), and the no-LLM fallback. |
+| `tools.py` | Complaints, dossiers, SOP + safety-override priority, escalation chains, triage, actions, reports. |
+| `dbquery.py` | The LLM's SQL: one SELECT, `gcc_reader` role, READ ONLY transaction, 3 s timeout, 50 rows. |
+| `roles.py` | Nine GCC posts. Field posts see what they hold or own; leadership also sees posts that escalate to them. |
+| `voice.py` | Agora session per call: ARES language, Murf voice, brain URL; adapted from Agora's Python quickstart. |
+| `brief.py` | The 7 am brief: deterministic, Tamil by default, once per day, logged. |
+| `telegram.py` | Sends and logs every message (sent / failed / not configured); follows supergroup migration. |
+| `publyq.py` | Builds app.publyq.in URLs that mirror its own URL state (`state.js`). |
+| `mcp.py` | MCP server (Streamable HTTP, stateless JSON) over the same tools. |
 
-- **Primary voice path:** Agora ConvoAI owns the audio loop (VAD, barge-in,
-  ASR, Murf TTS) and calls our backend as its `custom` LLM. Audio never
-  touches our server — one text hop per turn.
-- **Text / fallback path:** the web client posts to `/api/agent/turn`. When
-  Agora is unavailable (no minutes left, blocked network), the browser's own
-  `SpeechRecognition` + `speechSynthesis` give a zero-cost voice loop over
-  the same endpoint.
+## 3. One spoken turn
 
-### Stack verdicts
+1. Agora's VAD detects the end of speech; ARES transcribes it (`en-IN` or `ta-IN`).
+2. Agora calls `POST /v1/chat/completions?session=…&role=…&lang=…` with the shared bearer token.
+3. `run_turn` loads the session context (role, focus complaint, last list) from the `turns` table: the server
+   is stateless, so context lives in Postgres.
+4. Control layer: "confirm" / "சரி" → `confirm_action` in code; otherwise Claude streams. It opens with
+   "Let me check…" before tool calls so the caller isn't left in silence.
+5. Tool calls run in-process against Neon; results go back to Claude; text streams back to Agora as
+   `chat.completion.chunk`s, and Murf speaks it.
+6. The turn (text, reply, tools, cards, latency) is saved. The browser polls the conversation and shows the same
+   cards a typed question would.
 
-| Layer | Asked for | Verdict | Why |
-|---|---|---|---|
-| Frontend | Reuse app.publyq.in stack | **Keep** — vanilla JS, no build, copied `tokens.css` | No bundler = no build step, instant deploy, same look |
-| Hosting | Vercel | **Keep** — static `web/` + one Python function | Same platform as Publyq; streaming responses supported |
-| Backend | FastAPI | **Keep** | Native SSE, Pydantic validation, Agora custom-LLM samples use it |
-| DB | Neon Postgres | **Keep**, `psycopg3` raw SQL, no ORM | 11 tables, parameterized SQL; ORM adds weight not value |
-| STT | Agora | **Keep, via ConvoAI** (not standalone STT) | ConvoAI bundles ASR+VAD+turn-taking; standalone STT would force us to build barge-in ourselves |
-| TTS | Murf Falcon | **Keep, configured inside ConvoAI** (`vendor: murf`, Beta per Agora API spec) | Removes a separate TTS hop and a second streaming integration from our code |
-| LLM | "Falcon 2.1" | **Not identified as an LLM API — needs your confirmation.** Murf's *Falcon* is a TTS model. Backend speaks the OpenAI-compatible chat format, so any provider (incl. a Falcon LLM endpoint if it's OpenAI-compatible) is an env-var swap. `scripts/eval_llm.py` scores candidates on tool-choice accuracy and time-to-first-token against real Ward 173 questions. | Don't lock in before measuring |
-| Media | — | Dev: served from disk. Prod: needs object storage (1.4 GB won't ship in a Vercel bundle); officer photos fall back to the GCC ERP `source_url` | Don't push 1.4 GB through git |
+**Measured:** first spoken word ≈ 0.9–1.1 s on Claude turns with lookups; deterministic turns 1–20 ms server-side.
 
-**Removed on purpose:** Redis, queues, vector DB, LangChain, ORM, a separate
-TTS proxy, a separate STT service. 455 complaints fit in Postgres full-text
-search; a vector DB would be architecture theatre at this size.
+## 4. Decisions
 
-## 3. Latency strategy
-
-Target: speech-end → first audio < 1.5 s on the fast path.
-
-| Stage | Budget | How |
+| Area | Chosen | Rejected, and why |
 |---|---|---|
-| End-of-speech detect + ASR | ~400–700 ms | Agora ConvoAI VAD/ASR (outside our control; tune silence threshold) |
-| Brain, **fast path** | < 60 ms | Deterministic router: complaint IDs, localities, "open/overdue/safety", "who handles", "SOP", "follow-ups", "confirm". No LLM call at all. |
-| Brain, LLM path | TTFT of model + tool SQL (< 30 ms each) | Tools run in-process against Postgres; at most 4 tool rounds; stream the final answer token by token |
-| TTS first audio | Murf streaming | Short, speech-shaped answers (≤ 2 sentences spoken, details shown on screen) |
+| Speech-to-text | Agora **ARES** | Agora-managed Deepgram: timed out on this project (`agent-error asr 1000`); reproduced and fixed on Agora's own quickstart first |
+| Text-to-speech | Murf **Falcon 2.1** inside ConvoAI (`vendor: murf`, model `falcon-2.1`) | A separate TTS proxy: one more hop and streaming integration for nothing |
+| Brain | **Claude Opus 5.5**, official SDK, manual tool loop, server-side refusal fallback, cached system prompt | OpenAI-style shim (first version); agent frameworks (we need our own approval gate and per-token streaming) |
+| Retrieval | **Tools + read-only SQL** over Postgres | Vector RAG: 455 tabular records answer exactly with SQL; embeddings would add cost and fuzziness |
+| Voice fallback | **None.** Only Agora voices; text chat is always available | Browser speech (built first, removed at the user's request) |
+| Writes | **Two-phase**, confirm in code, Telegram on confirm | Letting the LLM confirm, or email (GCC has no email endpoints for posts) |
+| Hosting region | **iad1** next to Claude and Neon US-East | Mumbai: closer to users, but each turn makes several LLM + DB round trips |
+| Analytics | **Deep links** into app.publyq.in | Rebuilding Publyq's lists and maps |
+| MCP transport | **Stateless JSON** over Streamable HTTP | Session/SSE transport: needs a long-lived session manager that serverless won't keep |
+| Morning brief | **Deterministic template** | LLM-written: varies daily, costs money, and can be wrong in front of the whole team |
 
-Reliability rules:
+## 5. Data model (Postgres)
 
-- **No key, no outage:** with no LLM configured the fast path still answers
-  most ward questions; unmatched questions get an honest "I can't do that
-  without the language model" plus examples.
-- **LLM failure → fast-path retry → graceful message**, never a stack trace read aloud.
-- **Neon cold start:** pooled connection string + small pool; first query
-  timeout 5 s.
-- **Writes are two-phase:** `propose` returns an action in `proposed`
-  state; only `confirm` executes. Prevents ASR mishearings from escalating
-  the wrong complaint.
+**Source records** (from the Ward 173 CSVs; read-only to the app): `complaints` (455; typed columns +
+`raw` jsonb; `holder_post_id` from GCC's viewer code, `owner_post_id` from the SOP owner role,
+`issue_group_id` = Publyq category), `complaint_events` (512), `media` (1,326 links), `officials` (761 posts),
+`reporting_lines` (892), `ward_map` (200), `sops` (56), `type_sop_map`, `role_ladder`, `data_dictionary`.
 
-## 4. Data model (Postgres)
+**Workspace** (what the app writes): `actions` (escalate / assign / note / follow_up / status_change /
+close_request / help_request; proposed → confirmed → done or cancelled), `communications` (every Telegram
+message, `kind` = action or morning_brief), `conversations` + `turns` (chat history per device, with cards and
+the role and context used).
 
-Source CSVs are loaded as-is into typed tables; nothing is invented.
+`gcc_reader` has SELECT on records, actions and communications only, never conversations or turns.
 
-| Table | Rows | Source |
-|---|---|---|
-| `complaints` | 455 | `ward173_complaints.csv` (key fields typed, full row in `raw jsonb`) |
-| `complaint_events` | 512 | `ward173_events.csv` — officer/QA actions per complaint |
-| `media` | ~1,300 | `images_manifest.csv` + `x_media_manifest.csv` |
-| `officials` | 761 | `gcc_officials.csv` — **posts, not people** |
-| `reporting_lines` | 892 | `gcc_reporting_lines.csv` |
-| `ward_map` | 200 | `gcc_ward_map.csv` |
-| `sops` | 56 | `gcc_complaint_sop.csv` |
-| `type_sop_map` | per GCC type | derived at seed: GCC complaint type → SOP row, within the same `issue_group`, with match score |
-| `actions` | workspace | **our** writes: escalate / assign / note / follow_up / report, two-phase |
-| `turns` | workspace | audit log: utterance, route (fast/llm), tools called, latency |
+## 6. API
 
-`actions` and `turns` are the only tables the app writes. GCC source tables
-are read-only from the app's point of view.
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/agent/turn` | Chat turn, server-sent events: `route`, `card`, `delta`, `done` |
+| `POST /v1/chat/completions` | Agora ConvoAI's custom LLM (OpenAI chat format, bearer token) |
+| `GET/POST /api/voice/status · config · start · stop` | Agora call lifecycle (token, start agent, stop) |
+| `GET /api/conversations[/{id}]`, `DELETE …` | History per device |
+| `GET /api/roles`, `/api/complaints[/{id}]`, `/api/ward/173/summary`, `/api/officials/{post}`, `/api/sops` | Read APIs |
+| `POST /api/triage`, `GET/POST /api/actions`, `POST /api/actions/{id}/{confirm|cancel|done}` | Workflow |
+| `GET /api/reports/complaint/{id}`, `/api/reports/ward`, `/api/communications` | Reports and Telegram log |
+| `GET /api/cron/morning-brief` | Daily brief (Vercel Cron secret); `?dry_run=true` previews |
+| `POST /mcp` | MCP server (bearer token) |
 
-**Honesty boundary:** GCC's ERP has no write API available to us. "Escalate"
-records the escalation in our ledger, names the target post from the real
-reporting lines, and drafts the message. It does not claim to have changed
-the GCC portal.
+## 7. Safety model
 
-## 5. API contracts
+| Risk | Guard |
+|---|---|
+| A mis-heard voice command makes a change | Two-phase writes; confirm/cancel parsed by code (English and Tamil whole-utterance lists) |
+| The LLM writes to the database | `query_db` accepts one SELECT, runs as `gcc_reader` in a READ ONLY transaction, 3 s timeout |
+| Prompt injection via complaint text | Record text is data in tool results; the LLM has no confirm tool; Telegram HTML is escaped |
+| Someone else's conversation | History is keyed by device; confirm-by-ID only works within its own conversation or channel |
+| Public endpoints abused | Separate bearer secrets for the ConvoAI brain, the cron job and MCP |
+| Silent delivery failures | Every Telegram attempt is logged with its status and error |
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/health` | DB reachable, LLM configured, counts |
-| POST | `/api/agent/turn` | `{session_id, text}` → SSE: `route`, `tool`, `card`, `delta`, `done` events |
-| POST | `/v1/chat/completions` | OpenAI-compatible (Agora ConvoAI custom LLM). Streams `chat.completion.chunk` |
-| GET | `/api/complaints` | filters: `status_group, locality, issue_group, safety, overdue, q, limit` |
-| GET | `/api/complaints/{id}` | full dossier: complaint, events, media, SOP, responsible posts, repeats, actions |
-| GET | `/api/ward/{ward}/summary` | counts by status, type, locality; officials |
-| GET | `/api/officials/{post_id}` | post + reporting chain |
-| POST | `/api/triage` | `{text}` → SOP type, priority, owner post, likely duplicates |
-| GET/POST | `/api/actions`, `/api/actions/{id}/confirm`, `/cancel` | workflow ledger |
-| GET | `/api/reports/complaint/{id}` | completion report (markdown) |
-| GET | `/media/{file}` | dev-only media |
+## 8. Deployment
 
-## 6. The end-to-end workflow (demo script)
+Vercel project `gcc-publyq`: static `web/` + one Python function (`api/index.py`), region `iad1`, cron
+`30 1 * * *`; `.vercelignore` ships about 0.2 MB. Neon is attached through the Vercel integration
+(`NEON_DATABASE_URL`). `backend/scripts/migrate_db.py` copies local → Neon over the direct endpoint, refuses a
+non-empty target, re-applies the read-only role and checks row counts per table. Domain: `gcc.publyq.in`
+(CNAME at the DNS provider).
 
-1. **Initiate** — "What's urgent in my ward?" → open safety-risk complaints, overdue first.
-2. **Understand** — "Open the manhole one." → dossier: what citizen said, what officers did, photos, SOP diagnose steps, who holds it now.
-3. **Execute** — "Escalate it." → proposes escalation to the post's real reporting line (e.g. `AE-D173 → AEE3-Z13`), drafts the note. "Confirm." → written.
-4. **Confirm** — reads back action ID, target post, follow-up date.
-5. **Follow up** — "What follow-ups are due?" → due list; "Report on 2026-…" → completion report with the audit trail.
+## 9. Known limits
 
-## 7. Roadmap
-
-| # | Milestone | Verifiable by |
-|---|---|---|
-| M0 | Repo, architecture, env, isolated dev DB | this doc; `scripts/dev-db.sh` |
-| M1 | Schema + seed from CSVs | row counts match CSVs (tests) |
-| M2 | Domain tools + REST API | pytest against seeded DB |
-| M3 | Fast-path router + two-phase actions + reports | pytest: full workflow without an LLM |
-| M4 | LLM tool loop + OpenAI-compatible endpoint | pytest with a stub LLM; live once a key is set |
-| M5 | Voice-first web client (browser voice fallback) | run locally, drive the workflow by voice/text |
-| M6 | Vercel + Neon deploy config | `vercel` preview deploy (needs your Neon URL) |
-| M7 | Agora ConvoAI baseline via official quickstart, then point its LLM at `/v1/chat/completions` and TTS at Murf | agent joins channel; one spoken turn end to end (needs Agora App Certificate, Murf key) |
-| M8 | Media to object storage | photos load on gcc.publyq.in |
-
-## 8. Publyq integration (deep links, not duplication)
-
-app.publyq.in already renders complaint lists, details, maps and accountability for the same GCC records,
-and stores its full view state in the URL hash. So the integration is a pure function from "what the user
-is looking at here" to "the exact Publyq URL" (`backend/app/publyq.py`): no shared database, no new API,
-no second copy of Publyq's UI. Repeat spots and role-scoped issues link their exact complaint IDs (Publyq has
-no notion of our role scopes); sets over Publyq's 100-ID cap fall back to the ward-wide filter and say so.
-
-## 9. MCP: one toolset, every client
-
-The voice agent, the chat, and any MCP client (Claude Desktop/Code, IDEs, other agents) call the same Python
-functions with the same role scoping, SQL guards and two-phase writes. `/mcp` speaks Streamable HTTP in stateless
-JSON mode, so each request is self-contained, which suits serverless functions. Confirmations through MCP rely on the
-host's approval prompt (`destructiveHint`), and only actions proposed through MCP can be confirmed there.
+- **Snapshot data:** the records are from 15–20 Nov 2026; Publyq's views are live, so filtered counts can drift.
+- **No GCC write-back:** GCC's portal has no API for outside apps.
+- **Identity is per device:** there's no sign-in yet; the role is chosen, not verified.
+- **Tamil speech** is one language per call; mixed Tamil–English recognition hasn't been measured on many real calls.
