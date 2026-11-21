@@ -163,3 +163,10 @@ and stores its full view state in the URL hash. So the integration is a pure fun
 is looking at here" to "the exact Publyq URL" (`backend/app/publyq.py`): no shared database, no new API,
 no second copy of Publyq's UI. Repeat spots and role-scoped issues link their exact complaint IDs (Publyq has
 no notion of our role scopes); sets over Publyq's 100-ID cap fall back to the ward-wide filter and say so.
+
+## 9. MCP: one toolset, every client
+
+The voice agent, the chat, and any MCP client (Claude Desktop/Code, IDEs, other agents) call the same Python
+functions with the same role scoping, SQL guards and two-phase writes. `/mcp` speaks Streamable HTTP in stateless
+JSON mode, so each request is self-contained, which suits serverless functions. Confirmations through MCP rely on the
+host's approval prompt (`destructiveHint`), and only actions proposed through MCP can be confirmed there.

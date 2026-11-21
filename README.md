@@ -79,6 +79,23 @@ Neon Postgres via the Vercel integration (`NEON_DATABASE_URL`), DNS CNAME at Spa
 | Outbound | Telegram group "Publyq Ward 173" via @Publyqbot; every message logged in `communications` |
 | Data | All CSVs in Postgres (local and Neon); media bytes stay in object storage, served from source URLs |
 
+### MCP server
+
+`https://gcc.publyq.in/mcp` serves the same tools the voice agent uses to any MCP client (Streamable HTTP,
+stateless, bearer `MCP_TOKEN`). That's 16 tools: role-scoped `my_queue` / `patterns`, `get_complaint`,
+read-only `query_db`, `get_sop`, officials, `triage`, `ward_brief`, actions, the Telegram log,
+`open_in_publyq`, and two-phase writes (`propose_action`, then `confirm_action` / `cancel_action`, marked
+destructive so hosts ask the human first).
+
+Claude Code:
+
+```bash
+claude mcp add --transport http gcc-publyq https://gcc.publyq.in/mcp --header "Authorization: Bearer $MCP_TOKEN"
+```
+
+Verified with the official MCP Python SDK client (initialize, tools/list, role-scoped reads, SQL guard,
+propose then cancel).
+
 ### Morning brief + Tamil
 
 - **07:00 IST every day** Vercel Cron calls `GET /api/cron/morning-brief` (signed with `CRON_SECRET`); the
