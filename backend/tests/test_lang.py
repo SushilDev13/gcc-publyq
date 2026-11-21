@@ -32,6 +32,49 @@ def test_asking_for_a_language_switches():
     assert L.detect('अंग्रेज़ी में बताइए', 'hi') == 'en'
 
 
+def test_english_in_devanagari_or_tamil_script_stays_english():
+    # ARES hears hi-IN and ta-IN too, and writes Indian-accented English in those scripts. Every one of these used
+    # to flip an English call (and restart the agent).
+    for said in ('ओके', 'ओके थैंक यू', 'यस', 'नो', 'हेलो', 'प्लीज़ कन्फर्म', 'व्हाट इज़ ऑन माय प्लेट टुडे',
+                 'शो मी द ओपन कंप्लेंट्स', 'what is the status of कंप्लेंट 2026-185OET',
+                 'escalate this to the सैनिटरी इंस्पेक्टर', 'show me Adyar complaints, जल्दी',
+                 'ஓகே', 'வாட் இஸ் தி ஸ்டேட்டஸ்', 'ஷோ மீ ஓபன் கம்ப்ளைண்ட்ஸ்'):
+        assert L.detect(said, 'en') == 'en', said
+    # and a Hindi/Tamil call can still be left by speaking English, even when ARES writes it in their script
+    assert L.detect('व्हाट इज़ ऑन माय प्लेट टुडे', 'hi') == 'en'
+    assert L.detect('ஷோ மீ தி ஓபன் கம்ப்ளைண்ட்ஸ்', 'ta') == 'en'
+
+
+def test_real_hindi_and_tamil_still_switch():
+    for said in ('ठीक है', 'आज क्या काम है', 'इस complaint को escalate कर दो', 'मुझे Adyar की शिकायतें दिखाओ',
+                 'open complaints की list दिखाओ'):
+        assert L.detect(said, 'en') == 'hi', said
+    for said in ('ஆமா', 'எத்தனை புகார்கள் நிலுவையில் உள்ளன', 'இந்த complaint-ஐ escalate பண்ணுங்க',
+                 'Adyar புகார்களைக் காட்டு', 'பேசி முடித்தேன்', 'பதிவு செய்யப்பட்டது'):
+        assert L.detect(said, 'en') == 'ta', said
+
+
+def test_naming_a_language_is_not_asking_for_it():
+    for said in ('how many complaints came from Tamil Nadu Housing Board', 'is the board in Tamil or English',
+                 'the complaint in Hindi Prachar Sabha street', 'notice was written in tamil nadu style'):
+        assert L.detect(said, 'en') == 'en', said
+    assert L.detect('सुन रही हूँ। हिंदी, अंग्रेज़ी या तमिल में बोलिए।', 'en') == 'hi'
+    assert L.detect('கேட்கிறேன். தமிழ், ஆங்கிலம் அல்லது இந்தியில் பேசுங்கள்.', 'en') == 'ta'
+    assert L.detect('switch to English', 'hi') == 'en' and L.detect('Hindi please', 'en') == 'hi'
+    assert L.detect('speak in tamil', 'en') == 'ta' and L.detect('इंग्लिश में बोलो', 'hi') == 'en'
+
+
+def test_an_english_call_never_restarts():
+    cur, restarts = 'en', 0
+    for said in ('hello', 'what is on my plate today', 'ओके', 'show me the oldest one', 'यस',
+                 'what is the status of कंप्लेंट 2026-185OET', 'escalate this to the सैनिटरी इंस्पेक्टर',
+                 'how many from Tamil Nadu Housing Board', 'थैंक यू'):
+        new = L.detect(said, cur)
+        restarts += new != cur
+        cur = new
+    assert restarts == 0
+
+
 def test_hindi_greeting_uses_post_title():
     g = voice.greeting('AE-D173', 'hi')
     assert g.startswith('नमस्ते, सहायक अभियंता. आपके पास 80 शिकायतें खुली हैं')
