@@ -14,3 +14,6 @@ Complaints/Images/images/
 .vercel
 .env*
 !.env.example
+
+# local media/output from other tools, never deployed or committed
+brag-output/
