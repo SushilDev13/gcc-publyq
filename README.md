@@ -67,21 +67,21 @@ OpenAI-compatible chat-completions API, then compare candidates:
 .venv/bin/python -m backend.scripts.eval_llm
 ```
 
-## Deploy (Vercel + Neon) — not yet done
+## Live
 
-1. Create a Neon database and copy its **pooled** connection string.
-2. Seed it: `DATABASE_URL=<neon-url> .venv/bin/python -m backend.scripts.seed`
-3. Create a **new** Vercel project from this repo (not the Publyq one). Set the env vars
-   from `.env.example`, then add the domain `gcc.publyq.in`.
-4. Media (1.4 GB) isn't deployed. Photos fall back to their public source URLs until
-   `MEDIA_BASE_URL` points at object storage.
+**https://gcc.publyq.in** — Vercel project `gcc-publyq` (functions in `iad1`, next to Claude and Neon US-East),
+Neon Postgres via the Vercel integration (`NEON_DATABASE_URL`), DNS CNAME at Spaceship.
 
-## Agora ConvoAI voice (M7) — not yet done
+| Piece | What runs |
+|---|---|
+| Voice | Agora ConvoAI: ARES speech-to-text (`en-IN`) → GCC Publyq brain → Murf Falcon 2.1 (Anisha default, Abhinav selectable) |
+| Brain | Claude Opus 5.5 (official SDK) with role-scoped tools + read-only SQL; deterministic confirm/cancel |
+| Outbound | Telegram group "Publyq Ward 173" via @Publyqbot; every message logged in `communications` |
+| Data | All CSVs in Postgres (local and Neon); media bytes stay in object storage, served from source URLs |
 
-The brain already speaks the OpenAI chat-completions format at `POST /v1/chat/completions?session=<id>`,
-with optional `Authorization: Bearer $CUSTOM_LLM_TOKEN`. Next steps:
-1. Run Agora's official ConvoAI quickstart once to prove the project works end to end.
-2. Point its LLM at this endpoint (`vendor: custom`, `style: openai`) and set its TTS to `murf`.
+Re-deploy: `vercel deploy --prod`. Move data again: `python -m backend.scripts.migrate_db` (refuses a
+non-empty target unless `--replace`; verifies every table). Link a new Telegram group:
+`python -m backend.scripts.telegram_link --write`.
 
 ## Layout
 
