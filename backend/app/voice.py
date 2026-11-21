@@ -96,28 +96,6 @@ def connection_config(session_id: str) -> dict:
             'agent_uid': agent_uid}
 
 
-def greeting(role_id: str | None, lang: str = DEFAULT_LANG) -> str:
-    r = R.describe(role_id)
-    if lang == 'ta':
-        if r['open']:
-            return (f"வணக்கம், {r['label_ta']}. உங்களிடம் {r['open']} புகார்கள் நிலுவையில் உள்ளன"
-                    + (f", அவற்றில் {r['open_safety']} பாதுகாப்பு அபாயம்" if r['open_safety'] else '')
-                    + '. என்ன உதவி வேண்டும்?')
-        return (f"வணக்கம், {r['label_ta']}. உங்களிடம் நிலுவையில் புகார்கள் இல்லை. "
-                'மீண்டும் வரும் பிரச்சினைகள், ஒரு புகார், அல்லது புதிய தகவல் பற்றிக் கேளுங்கள்.')
-    if lang == 'hi':
-        if r['open']:
-            return (f"नमस्ते, {r['label_hi']}. आपके पास {r['open']} शिकायतें खुली हैं"
-                    + (f", जिनमें {r['open_safety']} सुरक्षा जोखिम हैं" if r['open_safety'] else '')
-                    + '। बताइए, क्या मदद करूँ?')
-        return (f"नमस्ते, {r['label_hi']}. आपके पास कोई शिकायत खुली नहीं है। "
-                'बार-बार आने वाली समस्याओं, किसी शिकायत, या नई सूचना के बारे में पूछिए।')
-    if r['open']:
-        return (f"Hello {r['label']}. You have {r['open']} open complaints"
-                + (f", {r['open_safety']} flagged safety risk" if r['open_safety'] else '') + '. What do you need?')
-    return f"Hello {r['label']}. Nothing is open on your desk. Ask me about patterns, a complaint, or a new report."
-
-
 def vendors(session_id: str, role_id: str | None, hello: str, voice: str = DEFAULT_VOICE,
             lang: str = DEFAULT_LANG):
     """STT / LLM / TTS blocks of the agent (the only part changed from the quickstart)."""
@@ -142,13 +120,13 @@ def vendors(session_id: str, role_id: str | None, hello: str, voice: str = DEFAU
 
 async def start(channel: str, agent_uid: int, user_uid: int, session_id: str, role_id: str | None,
                 voice: str = DEFAULT_VOICE, lang: str = DEFAULT_LANG, hello: str | None = None) -> dict:
-    """Start the agent. `hello` replaces the greeting when the call restarts to switch language: it is the
-    answer the person is waiting for, spoken in their new language."""
+    """Start the agent. A new call has no greeting: the person is already speaking (the first tap opens their
+    turn) and the screen shows their queue. `hello` is set only when the call restarts to switch language: it
+    is the answer the person is waiting for, spoken in their new language."""
     cfg = configured()
     if not cfg['ready']:
         raise VoiceError('Voice is not configured: missing ' + ', '.join(cfg['missing']))
     role_id = role_id if role_id in R.BY_ID else None
-    hello = hello or greeting(role_id, lang)
     stt, llm, tts = vendors(session_id, role_id, hello, voice, lang)
     agent = AgoraAgent(
         client=_client(), instructions=INSTRUCTIONS, greeting=hello,

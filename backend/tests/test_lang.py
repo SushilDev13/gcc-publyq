@@ -75,12 +75,6 @@ def test_an_english_call_never_restarts():
     assert restarts == 0
 
 
-def test_hindi_greeting_uses_post_title():
-    g = voice.greeting('AE-D173', 'hi')
-    assert g.startswith('नमस्ते, सहायक अभियंता. आपके पास 80 शिकायतें खुली हैं')
-    assert 'कोई शिकायत खुली नहीं' in voice.greeting('AEL-D173', 'hi')
-
-
 def _configure(monkeypatch):
     for k, v in dict(agora_app_id='a' * 32, agora_app_certificate='b' * 32, murf_api_key='murf-test',
                      public_base_url='https://gcc.example.test', custom_llm_token='tok').items():
@@ -103,7 +97,7 @@ def test_every_call_hears_three_languages(monkeypatch):
     body = {'channel': 'gcc-h', 'agent_uid': 22, 'user_uid': 11, 'session_id': 'test-hi1', 'role_id': 'AE-D173',
             'lang': 'hi'}
     r = api.post('/api/voice/start', json=body, headers=as_user('test-device-h')).json()
-    assert r['lang'] == 'hi' and r['greeting'].startswith('नमस्ते')
+    assert r['lang'] == 'hi' and r['greeting'] is None             # a new call starts silent
     assert captured['agent']._turn_detection['language'] == ['en-IN', 'ta-IN', 'hi-IN']
     cfg = captured['agent']._turn_detection['config']               # push to talk: the browser marks each turn
     assert cfg['start_of_speech'] == {'mode': 'manual'} and cfg['end_of_speech'] == {'mode': 'manual'}

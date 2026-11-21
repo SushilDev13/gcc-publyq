@@ -52,7 +52,8 @@ def test_agent_is_wired_to_brain_and_murf(monkeypatch):
     body = {'channel': 'gcc-x', 'agent_uid': 22, 'user_uid': 11, 'session_id': 'test-v3', 'role_id': 'AEL-D173',
             }
     r = api.post('/api/voice/start', json=body, headers=as_user('test-device-v')).json()
-    assert r['agent_id'] == 'agent-123' and 'Assistant Engineer (Electrical)' in r['greeting']
+    assert r['agent_id'] == 'agent-123' and r['greeting'] is None       # a new call starts silent
+    assert captured['agent'].greeting is None
     _, llm_v, tts_v = voice.vendors('test-v3', 'AEL-D173', 'hi')
     llm, tts = llm_v.to_config(), tts_v.to_config()
     assert llm['url'] == 'https://gcc.example.test/v1/chat/completions?session=test-v3&lang=en&role=AEL-D173'
@@ -62,11 +63,6 @@ def test_agent_is_wired_to_brain_and_murf(monkeypatch):
     assert captured['session']['remote_uids'] == ['11']
     hist = api.get('/api/conversations', headers=as_user('test-device-v')).json()['items']
     assert any(c['id'] == 'test-v3' for c in hist)            # call appears in history
-
-
-def test_greeting_honest_for_empty_queue():
-    assert 'Nothing is open' in voice.greeting('AEL-D173')
-    assert '80 open complaints' in voice.greeting('AE-D173')
 
 
 def test_voice_choice_and_stt(monkeypatch):
@@ -97,7 +93,3 @@ def test_tamil_call_config(monkeypatch):
     with pytest.raises(voice.VoiceError):
         voice.vendors('s', None, 'hi', 'anisha', 'fr')
 
-
-def test_tamil_greetings_use_gcc_post_titles():
-    assert voice.greeting('AE-D173', 'ta').startswith('வணக்கம், உதவிப் பொறியாளர். உங்களிடம் 80 புகார்கள் நிலுவையில்')
-    assert 'நிலுவையில் புகார்கள் இல்லை' in voice.greeting('AEL-D173', 'ta')
