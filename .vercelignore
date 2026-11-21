@@ -1,0 +1,16 @@
+# Ship only what the site needs: web/, api/, backend/app, requirements.txt, vercel.json
+.venv
+.local
+.agora
+.claude
+.env*
+!.env.example
+Complaints
+Officials
+backend/tests
+backend/scripts
+backend/db
+scripts
+*.log
+.pytest_cache
+__pycache__
