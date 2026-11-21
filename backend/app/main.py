@@ -168,6 +168,7 @@ class VoiceStartIn(BaseModel):
     role_id: str | None = Field(None, max_length=20)
     device_id: str = Field(min_length=8, max_length=80)
     voice: str = Field('anisha', max_length=20)
+    lang: str = Field('en', max_length=4)
 
 
 class VoiceStopIn(BaseModel):
@@ -178,6 +179,7 @@ class VoiceStopIn(BaseModel):
 def voice_status():
     return {**voice.configured(), 'voices': [{'key': k, **v} for k, v in voice.VOICES.items()],
             'default_voice': voice.DEFAULT_VOICE, 'llm': settings.llm_enabled,
+            'languages': {k: {'code': v['code'], 'voices': list(v['voices'])} for k, v in voice.LANGS.items()},
             'telegram': bool(settings.bot_token and settings.group_chat_id)}
 
 
@@ -202,7 +204,7 @@ async def voice_start(body: VoiceStartIn):
                (body.session_id, body.device_id, body.role_id, 'Voice call'))
     try:
         return await voice.start(body.channel, body.agent_uid, body.user_uid, body.session_id, body.role_id,
-                                 body.voice)
+                                 body.voice, body.lang)
     except voice.VoiceError as e:
         raise HTTPException(503, str(e))
     except Exception as e:

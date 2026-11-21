@@ -38,7 +38,11 @@ INSTRUCTIONS = ('You are GCC Publyq, a voice assistant for Greater Chennai Corpo
 VOICES = {'anisha': {'id': 'en-IN-anisha', 'label': 'Anisha (en-IN, female)'},
           'abhinav': {'id': 'en-IN-abhinav', 'label': 'Abhinav (en-IN, male)'}}
 DEFAULT_VOICE = 'anisha'
-LANGUAGE = 'en-IN'
+# One language per call: ARES takes a single language. Murf: Anisha speaks ta-IN, Abhinav does not
+# (supported locales checked via GET /v1/speech/voices).
+LANGS = {'en': {'code': 'en-IN', 'voices': ('anisha', 'abhinav')},
+         'ta': {'code': 'ta-IN', 'voices': ('anisha',)}}
+DEFAULT_LANG = 'en'
 
 
 class VoiceError(RuntimeError):
@@ -71,24 +75,38 @@ def connection_config(session_id: str) -> dict:
             'agent_uid': agent_uid}
 
 
-def greeting(role_id: str | None) -> str:
+def greeting(role_id: str | None, lang: str = DEFAULT_LANG) -> str:
     r = R.describe(role_id)
+    if lang == 'ta':
+        if r['open']:
+            return (f"வணக்கம், {r['label_ta']}. உங்களிடம் {r['open']} புகார்கள் நிலுவையில் உள்ளன"
+                    + (f", அவற்றில் {r['open_safety']} பாதுகாப்பு அபாயம்" if r['open_safety'] else '')
+                    + '. என்ன உதவி வேண்டும்?')
+        return (f"வணக்கம், {r['label_ta']}. உங்களிடம் நிலுவையில் புகார்கள் இல்லை. "
+                'மீண்டும் வரும் பிரச்சினைகள், ஒரு புகார், அல்லது புதிய தகவல் பற்றிக் கேளுங்கள்.')
     if r['open']:
         return (f"Hello {r['label']}. You have {r['open']} open complaints"
                 + (f", {r['open_safety']} flagged safety risk" if r['open_safety'] else '') + '. What do you need?')
     return f"Hello {r['label']}. Nothing is open on your desk. Ask me about patterns, a complaint, or a new report."
 
 
-def vendors(session_id: str, role_id: str | None, hello: str, voice: str = DEFAULT_VOICE):
+def vendors(session_id: str, role_id: str | None, hello: str, voice: str = DEFAULT_VOICE,
+            lang: str = DEFAULT_LANG):
     """STT / LLM / TTS blocks of the agent (the only part changed from the quickstart)."""
     brain_url = (settings.public_base_url.rstrip('/') + '/v1/chat/completions?'
-                 + urlencode({'session': session_id, **({'role': role_id} if role_id else {})}))
+                 + urlencode({'session': session_id, 'lang': lang, **({'role': role_id} if role_id else {})}))
     llm = OpenAI(api_key=settings.custom_llm_token, base_url=brain_url, model='gcc-publyq',
                  greeting_message=hello, failure_message='Sorry, I could not reach the ward records. Please try again.',
                  max_history=10)
+    if lang not in LANGS:
+        raise VoiceError(f"Unknown language {lang!r}; choose {', '.join(LANGS)}")
     if voice not in VOICES:
         raise VoiceError(f"Unknown voice {voice!r}; choose {', '.join(VOICES)}")
-    tts = MurfTTS(key=settings.murf_api_key, model='falcon-2.1', voice_id=VOICES[voice]['id'], locale=LANGUAGE,
+    if voice not in LANGS[lang]['voices']:
+        raise VoiceError(f"{VOICES[voice]['label'].split(' (')[0]} doesn't speak {LANGS[lang]['code']}; "
+                         f"choose {', '.join(LANGS[lang]['voices'])}")
+    tts = MurfTTS(key=settings.murf_api_key, model='falcon-2.1', voice_id=VOICES[voice]['id'],
+                  locale=LANGS[lang]['code'],
                   base_url='wss://global.api.murf.ai/v1/speech/stream-input', sample_rate=24000)
     stt = AresSTT(keywords=['Adyar', 'Kasturba Nagar', 'Indira Nagar', 'Gandhi Nagar', 'Thiruvanmiyur',
                             'Kamaraj Nagar', 'Venkatarathinam Nagar', 'escalate', 'sanitary inspector'])
@@ -96,17 +114,17 @@ def vendors(session_id: str, role_id: str | None, hello: str, voice: str = DEFAU
 
 
 async def start(channel: str, agent_uid: int, user_uid: int, session_id: str, role_id: str | None,
-                voice: str = DEFAULT_VOICE) -> dict:
+                voice: str = DEFAULT_VOICE, lang: str = DEFAULT_LANG) -> dict:
     cfg = configured()
     if not cfg['ready']:
         raise VoiceError('Voice is not configured: missing ' + ', '.join(cfg['missing']))
     role_id = role_id if role_id in R.BY_ID else None
-    hello = greeting(role_id)
-    stt, llm, tts = vendors(session_id, role_id, hello, voice)
+    hello = greeting(role_id, lang)
+    stt, llm, tts = vendors(session_id, role_id, hello, voice, lang)
     agent = AgoraAgent(
         client=_client(), instructions=INSTRUCTIONS, greeting=hello,
         failure_message='Sorry, I could not reach the ward records. Please try again.', max_history=50,
-        turn_detection={'language': LANGUAGE, 'config': {
+        turn_detection={'language': LANGS[lang]['code'], 'config': {
             'speech_threshold': 0.5,
             'start_of_speech': {'mode': 'vad', 'vad_config': {'interrupt_duration_ms': 160, 'prefix_padding_ms': 300}},
             'end_of_speech': {'mode': 'vad', 'vad_config': {'silence_duration_ms': 480}},
@@ -120,7 +138,8 @@ async def start(channel: str, agent_uid: int, user_uid: int, session_id: str, ro
                                          enable_string_uid=False, idle_timeout=30, expires_in=3600)
     agent_id = await session.start()
     log.info('voice agent started agent_id=%s channel=%s role=%s', agent_id, channel, role_id)
-    return {'agent_id': agent_id, 'channel': channel, 'greeting': hello, 'voice': VOICES[voice]['label']}
+    return {'agent_id': agent_id, 'channel': channel, 'greeting': hello, 'voice': VOICES[voice]['label'],
+            'lang': LANGS[lang]['code']}
 
 
 async def stop(agent_id: str) -> None:

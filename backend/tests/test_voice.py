@@ -54,7 +54,7 @@ def test_agent_is_wired_to_brain_and_murf(monkeypatch):
     assert r['agent_id'] == 'agent-123' and 'Assistant Engineer (Electrical)' in r['greeting']
     _, llm_v, tts_v = voice.vendors('test-v3', 'AEL-D173', 'hi')
     llm, tts = llm_v.to_config(), tts_v.to_config()
-    assert llm['url'] == 'https://gcc.example.test/v1/chat/completions?session=test-v3&role=AEL-D173'
+    assert llm['url'] == 'https://gcc.example.test/v1/chat/completions?session=test-v3&lang=en&role=AEL-D173'
     assert llm['api_key'] == 'tok'
     assert tts['vendor'] == 'murf' and tts['params']['model'] == 'falcon-2.1'
     assert tts['params']['voiceId'] == 'en-IN-anisha' and tts['params']['locale'] == 'en-IN'
@@ -83,3 +83,21 @@ def test_voice_choice_and_stt(monkeypatch):
 def test_status_lists_voices():
     s = api.get('/api/voice/status').json()
     assert [v['key'] for v in s['voices']] == ['anisha', 'abhinav'] and s['default_voice'] == 'anisha'
+
+
+def test_tamil_call_config(monkeypatch):
+    _configure(monkeypatch)
+    stt, llm_v, tts = voice.vendors('s-ta', 'AE-D173', 'hi', 'anisha', 'ta')
+    p = tts.to_config()['params']
+    assert p['locale'] == 'ta-IN' and p['voiceId'] == 'en-IN-anisha' and p['model'] == 'falcon-2.1'
+    assert 'lang=ta' in llm_v.to_config()['url']
+    import pytest
+    with pytest.raises(voice.VoiceError, match="doesn't speak ta-IN"):
+        voice.vendors('s', None, 'hi', 'abhinav', 'ta')
+    with pytest.raises(voice.VoiceError):
+        voice.vendors('s', None, 'hi', 'anisha', 'fr')
+
+
+def test_tamil_greetings_use_gcc_post_titles():
+    assert voice.greeting('AE-D173', 'ta').startswith('வணக்கம், உதவிப் பொறியாளர். உங்களிடம் 80 புகார்கள் நிலுவையில்')
+    assert 'நிலுவையில் புகார்கள் இல்லை' in voice.greeting('AEL-D173', 'ta')

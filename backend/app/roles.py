@@ -16,15 +16,15 @@ WARD = 'WARD'
 
 # Ward 173 roles offered in the app: field posts first, then leadership.
 ROLES = [
-    {'id': 'AE-D173', 'label': 'Assistant Engineer', 'dept': 'Works (civil)', 'kind': 'field'},
-    {'id': 'AEL-D173', 'label': 'Assistant Engineer (Electrical)', 'dept': 'Electrical', 'kind': 'field'},
-    {'id': 'SI-D173', 'label': 'Sanitary Inspector', 'dept': 'Health & sanitation', 'kind': 'field'},
-    {'id': 'POS1-Z13', 'label': 'Park Overseer', 'dept': 'Parks', 'kind': 'field'},
-    {'id': 'AEE3-Z13', 'label': 'Assistant Executive Engineer', 'dept': 'Works (civil)', 'kind': 'leadership'},
-    {'id': 'ADE1-Z13', 'label': 'Asst Divisional Engineer (Electrical)', 'dept': 'Electrical', 'kind': 'leadership'},
-    {'id': 'SO3-Z13', 'label': 'Sanitary Officer', 'dept': 'Health & sanitation', 'kind': 'leadership'},
-    {'id': 'EE1-Z13', 'label': 'Executive Engineer', 'dept': 'Works (civil)', 'kind': 'leadership'},
-    {'id': WARD, 'label': 'Ward leadership', 'dept': 'All departments', 'kind': 'ward'},
+    {'id': 'AE-D173', 'label': 'Assistant Engineer', 'label_ta': 'உதவிப் பொறியாளர்', 'dept': 'Works (civil)', 'kind': 'field'},
+    {'id': 'AEL-D173', 'label': 'Assistant Engineer (Electrical)', 'label_ta': 'உதவிப் பொறியாளர் (மின்)', 'dept': 'Electrical', 'kind': 'field'},
+    {'id': 'SI-D173', 'label': 'Sanitary Inspector', 'label_ta': 'சுகாதார ஆய்வாளர்', 'dept': 'Health & sanitation', 'kind': 'field'},
+    {'id': 'POS1-Z13', 'label': 'Park Overseer', 'label_ta': 'பூங்கா மேற்பார்வையாளர்', 'dept': 'Parks', 'kind': 'field'},
+    {'id': 'AEE3-Z13', 'label': 'Assistant Executive Engineer', 'label_ta': 'உதவிச் செயற்பொறியாளர்', 'dept': 'Works (civil)', 'kind': 'leadership'},
+    {'id': 'ADE1-Z13', 'label': 'Asst Divisional Engineer (Electrical)', 'label_ta': 'உதவிக் கோட்டப் பொறியாளர் (மின்)', 'dept': 'Electrical', 'kind': 'leadership'},
+    {'id': 'SO3-Z13', 'label': 'Sanitary Officer', 'label_ta': 'சுகாதார அலுவலர்', 'dept': 'Health & sanitation', 'kind': 'leadership'},
+    {'id': 'EE1-Z13', 'label': 'Executive Engineer', 'label_ta': 'செயற்பொறியாளர்', 'dept': 'Works (civil)', 'kind': 'leadership'},
+    {'id': WARD, 'label': 'Ward leadership', 'label_ta': 'வார்டு தலைமை', 'dept': 'All departments', 'kind': 'ward'},
 ]
 BY_ID = {r['id']: r for r in ROLES}
 
