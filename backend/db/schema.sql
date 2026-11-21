@@ -277,3 +277,26 @@ ALTER TABLE complaints ADD COLUMN IF NOT EXISTS issue_group_id text;
 -- what a communication was: an action notification or the scheduled morning brief
 ALTER TABLE communications ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'action';
 CREATE INDEX IF NOT EXISTS communications_kind_idx ON communications (kind, created_at);
+
+-- ── people (Telegram sign-in) ─────────────────────────────────────────────
+-- A user is a Telegram account that is in the Ward 173 group. They pick their own post (role_id); 'ADMIN' is
+-- only ever offered to ADMIN_TELEGRAM_IDS or the group's owner. Sessions keep only a SHA-256 of the cookie token.
+CREATE TABLE IF NOT EXISTS users (
+  id            bigint PRIMARY KEY,                 -- Telegram user id
+  name          text NOT NULL,
+  username      text,
+  photo_url     text,
+  role_id       text,
+  is_admin      boolean NOT NULL DEFAULT false,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  last_seen_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS user_sessions (
+  token_hash    text PRIMARY KEY,
+  user_id       bigint NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  verified_at   timestamptz NOT NULL DEFAULT now(),  -- last time Telegram said they are still in the group
+  expires_at    timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS user_sessions_user_idx ON user_sessions (user_id);
+-- conversations.device_id holds the owner key: 'tg:<telegram id>' for signed-in people

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from backend.app import llm
 from backend.app.config import settings
 from backend.app.main import app
+from backend.tests.conftest import as_user
 
 api = TestClient(app)
 
@@ -18,8 +19,8 @@ api = TestClient(app)
 def say(text: str, sid: str, role: str | None = None, device: str = 'test-device-1') -> dict:
     """POST one turn, parse the SSE stream into {route, intent, cards, text, done}."""
     out = {'cards': [], 'text': ''}
-    body = {'text': text, 'session_id': sid, 'role_id': role, 'device_id': device}
-    with api.stream('POST', '/api/agent/turn', json=body) as r:
+    body = {'text': text, 'session_id': sid, 'role_id': role}
+    with api.stream('POST', '/api/agent/turn', json=body, headers=as_user(device)) as r:
         assert r.status_code == 200
         ev = None
         for line in r.iter_lines():

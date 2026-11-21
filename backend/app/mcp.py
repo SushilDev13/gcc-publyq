@@ -29,7 +29,7 @@ INSTRUCTIONS = (
     'confirm_action only after the human agrees. GCC\'s own portal has no write API: actions are recorded in '
     'GCC Publyq and, when they need someone else, posted to the Ward 173 Telegram group.\n' + dbquery.SCHEMA_GUIDE)
 
-ROLE = {'type': 'string', 'enum': [r['id'] for r in R.ROLES], 'description': 'GCC post whose view to use'}
+ROLE = {'type': 'string', 'enum': [r['id'] for r in R.ROLES if r['id'] != R.ADMIN], 'description': 'GCC post whose view to use'}
 READ = {'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': False}
 
 

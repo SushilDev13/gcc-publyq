@@ -1,9 +1,10 @@
 """FastAPI app: REST tools, agent turn (SSE), OpenAI-compatible endpoint.
 
 Who may touch what:
-  - A conversation belongs to the device that started it (a random ID kept in that browser, sent as X-Device-Id).
-    Every endpoint that reads, continues, calls into or confirms actions in a conversation checks that owner;
-    a stranger gets the same 404 as for a conversation that doesn't exist.
+  - People sign in with Telegram and must be in the Ward 173 group (auth.py); the session is an HttpOnly cookie.
+  - A conversation belongs to the person who started it. Every endpoint that reads, continues, calls into or
+    decides actions in a conversation checks that owner; a stranger gets the same 404 as a missing one.
+  - Chats, calls, the action ledger and reports need a signed-in person; the Admin post needs an admin.
   - The ConvoAI brain, MCP and the cron job each need their own bearer secret; unset means the endpoint is off.
   - Complaint records, posts and SOPs are GCC's own published data and stay readable.
 """
@@ -18,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import db
+from . import auth, db
 from . import roles as R
 from . import brief, voice
 from . import mcp as mcp_server
@@ -33,7 +34,7 @@ app = FastAPI(title='GCC Publyq', version='0.1.0', docs_url=None, redoc_url=None
 # The web app calls the API from its own origin; other origins get no CORS grant. Agora, MCP clients and
 # Vercel Cron call server to server, where CORS doesn't apply.
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list, allow_methods=['GET', 'POST', 'DELETE'],
-                   allow_headers=['Content-Type', 'Authorization', 'X-Device-Id'])
+                   allow_headers=['Content-Type', 'Authorization'], allow_credentials=False)
 
 SECURITY_HEADERS = {'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY',
                     'Referrer-Policy': 'strict-origin-when-cross-origin'}
@@ -45,17 +46,29 @@ def _bearer_ok(request: Request, secret: str) -> bool:
     return bool(secret) and hmac.compare_digest(got.encode(), f'Bearer {secret}'.encode())
 
 
-def _device(request: Request, device_id: str | None = None) -> str:
-    d = request.headers.get('x-device-id') or device_id or ''
-    if not 8 <= len(d) <= 80:
-        raise HTTPException(401, 'device id required')
-    return d
+def _user(request: Request) -> dict:
+    """The signed-in person (from the session cookie), or 401."""
+    u = auth.current_user(request.cookies.get(auth.COOKIE))
+    if not u:
+        raise HTTPException(401, 'sign in required')
+    return u
 
 
-def _claim(session_id: str, device_id: str) -> None:
-    """A conversation is usable only by the device that started it. Unknown IDs are free to start."""
+def _owner(request: Request) -> str:
+    return auth.owner_key(_user(request)['id'])
+
+
+def _role(user: dict, role_id: str | None) -> str | None:
+    """A post the person may speak as: any GCC post, Admin only for admins."""
+    if role_id == R.ADMIN and not user['is_admin']:
+        raise HTTPException(403, 'Admin is not available to this account')
+    return role_id
+
+
+def _claim(session_id: str, owner: str) -> None:
+    """A conversation is usable only by the person who started it. Unknown IDs are free to start."""
     c = db.fetchone('SELECT device_id FROM conversations WHERE id = %s', (session_id,))
-    if c and not hmac.compare_digest(c['device_id'].encode(), device_id.encode()):
+    if c and not hmac.compare_digest(c['device_id'].encode(), owner.encode()):
         raise HTTPException(404, 'conversation not found')
 
 
@@ -86,6 +99,57 @@ def health():
     except Exception as e:  # report, don't crash
         log.exception('health check failed')
         return JSONResponse({'ok': False, 'db': 'down', 'error': type(e).__name__}, status_code=503)
+
+
+# ── sign-in (Telegram) ────────────────────────────────────────────────────
+class TelegramIn(BaseModel):
+    model_config = {'extra': 'allow'}           # the widget's fields are all signed; keep every one
+    id: int
+    auth_date: int
+    hash: str = Field(min_length=64, max_length=64)
+
+
+class RoleIn(BaseModel):
+    role_id: str | None = Field(None, max_length=20)
+
+
+@app.get('/api/auth/config')
+def auth_config():
+    return {'configured': auth.configured(), 'bot_username': auth.bot_username()}
+
+
+@app.post('/api/auth/telegram')
+def auth_telegram(body: TelegramIn, request: Request):
+    try:
+        token, user = auth.sign_in(body.model_dump())
+    except auth.AuthError as e:
+        raise HTTPException(e.status, str(e))
+    resp = JSONResponse(auth.public(user))
+    local = request.url.hostname in ('localhost', '127.0.0.1')
+    resp.set_cookie(auth.COOKIE, token, max_age=auth.SESSION_DAYS * 86400, httponly=True, secure=not local,
+                    samesite='lax', path='/')
+    return resp
+
+
+@app.get('/api/auth/me')
+def auth_me(request: Request):
+    return auth.public(_user(request))
+
+
+@app.post('/api/auth/role')
+def auth_role(body: RoleIn, request: Request):
+    try:
+        return auth.public(auth.set_role(_user(request), body.role_id))
+    except auth.AuthError as e:
+        raise HTTPException(e.status, str(e))
+
+
+@app.post('/api/auth/logout')
+def auth_logout(request: Request):
+    auth.sign_out(request.cookies.get(auth.COOKIE))
+    resp = JSONResponse({'ok': True})
+    resp.delete_cookie(auth.COOKIE, path='/')
+    return resp
 
 
 # ── facts ─────────────────────────────────────────────────────────────────
@@ -141,15 +205,17 @@ class ActionIn(BaseModel):
 
 
 @app.get('/api/actions')
-def actions(status: str | None = None, kind: str | None = None, complaint_id: str | None = None,
+def actions(request: Request, status: str | None = None, kind: str | None = None, complaint_id: str | None = None,
             due_only: bool = False):
+    _user(request)
     return T.list_actions(status, kind, complaint_id, due_only)
 
 
 @app.post('/api/actions')
 def propose(body: ActionIn, request: Request):
+    owner = _owner(request)
     if body.session_id:                    # a proposal lands in a conversation only its owner can confirm
-        _claim(body.session_id, _device(request))
+        _claim(body.session_id, owner)
     return T.propose_action(**body.model_dump())
 
 
@@ -159,7 +225,7 @@ def transition(aid: int, op: str, request: Request):
     if not fn:
         raise HTTPException(404, 'op must be confirm, cancel or done')
     # Only the device whose conversation proposed it may decide (confirming can post to Telegram).
-    dev = _device(request)
+    dev = _owner(request)
     own = db.fetchone('''SELECT 1 FROM actions a JOIN conversations c ON c.id = a.session_id
                          WHERE a.id = %s AND c.device_id = %s AND c.deleted_at IS NULL''', (aid, dev))
     if not own:
@@ -169,14 +235,14 @@ def transition(aid: int, op: str, request: Request):
 
 # ── roles + chat history ──────────────────────────────────────────────────
 @app.get('/api/roles')
-def roles():
-    return {'roles': R.list_roles()}
+def roles(request: Request):
+    u = auth.current_user(request.cookies.get(auth.COOKIE))
+    return {'roles': [r for r in R.list_roles() if r['id'] != R.ADMIN or (u and u['is_admin'])]}
 
 
 @app.get('/api/conversations')
-def conversations(request: Request, device_id: str | None = Query(None, max_length=80),
-                  limit: int = Query(20, ge=1, le=100)):
-    device_id = _device(request, device_id)
+def conversations(request: Request, limit: int = Query(20, ge=1, le=100)):
+    device_id = _owner(request)
     rows = db.fetchall("""SELECT c.id, c.role_id, c.title, c.created_at, c.updated_at,
                                 (SELECT count(*) FROM turns t WHERE t.session_id = c.id) turns
                          FROM conversations c WHERE c.device_id = %s AND c.deleted_at IS NULL
@@ -193,8 +259,8 @@ def _own_conversation(cid: str, device_id: str) -> dict:
 
 
 @app.get('/api/conversations/{cid}')
-def conversation(cid: str, request: Request, device_id: str | None = Query(None, max_length=80)):
-    c = _own_conversation(cid, _device(request, device_id))
+def conversation(cid: str, request: Request):
+    c = _own_conversation(cid, _owner(request))
     turns = db.fetchall("""SELECT id, text, reply, route, intent, role_id, latency_ms, cards, created_at,
                                  ctx->>'lang' AS lang
                           FROM turns WHERE session_id = %s ORDER BY id""", (cid,))
@@ -202,8 +268,8 @@ def conversation(cid: str, request: Request, device_id: str | None = Query(None,
 
 
 @app.delete('/api/conversations/{cid}')
-def delete_conversation(cid: str, request: Request, device_id: str | None = Query(None, max_length=80)):
-    _own_conversation(cid, _device(request, device_id))
+def delete_conversation(cid: str, request: Request):
+    _own_conversation(cid, _owner(request))
     db.execute('UPDATE conversations SET deleted_at = now() WHERE id = %s', (cid,))
     return {'ok': True, 'note': 'Hidden from history. Actions it created stay in the action ledger.'}
 
@@ -215,7 +281,6 @@ class VoiceStartIn(BaseModel):
     user_uid: int = Field(gt=0)
     session_id: str = Field(min_length=1, max_length=80)
     role_id: str | None = Field(None, max_length=20)
-    device_id: str | None = Field(None, max_length=80)   # or the X-Device-Id header
     voice: str = Field('anisha', max_length=20)
     lang: str = Field('en', max_length=4)            # the language the agent speaks; it hears all three
     greet_turn_id: int | None = Field(None, gt=0)    # restart to switch language: open with this turn's answer
@@ -234,14 +299,14 @@ def voice_status():
 
 
 @app.get('/api/communications')
-def communications(complaint_id: str | None = None):
+def communications(request: Request, complaint_id: str | None = None):
+    _user(request)
     return T.list_communications(complaint_id)
 
 
 @app.get('/api/voice/config')
-def voice_config(request: Request, session_id: str = Query(min_length=1, max_length=80),
-                 device_id: str | None = Query(None, max_length=80)):
-    _claim(session_id, _device(request, device_id))
+def voice_config(request: Request, session_id: str = Query(min_length=1, max_length=80)):
+    _claim(session_id, _owner(request))
     try:
         return voice.connection_config(session_id)
     except voice.VoiceError as e:
@@ -250,12 +315,13 @@ def voice_config(request: Request, session_id: str = Query(min_length=1, max_len
 
 @app.post('/api/voice/start')
 async def voice_start(body: VoiceStartIn, request: Request):
-    dev = _device(request, body.device_id)
+    user = _user(request)
+    dev, role_id = auth.owner_key(user['id']), _role(user, body.role_id)
     _claim(body.session_id, dev)
     # register the conversation up front so the call shows in history even before the first turn
     db.execute("""INSERT INTO conversations (id, device_id, role_id, title) VALUES (%s,%s,%s,%s)
                   ON CONFLICT (id) DO UPDATE SET updated_at = now()""",
-               (body.session_id, dev, body.role_id, 'Voice call'))
+               (body.session_id, dev, role_id, 'Voice call'))
     hello = None
     if body.greet_turn_id:
         t = db.fetchone('SELECT reply FROM turns WHERE id = %s AND session_id = %s', (body.greet_turn_id, body.session_id))
@@ -263,7 +329,7 @@ async def voice_start(body: VoiceStartIn, request: Request):
             raise HTTPException(404, 'turn not found in this conversation')
         hello = (t['reply'] or '').strip() or None
     try:
-        return await voice.start(body.channel, body.agent_uid, body.user_uid, body.session_id, body.role_id,
+        return await voice.start(body.channel, body.agent_uid, body.user_uid, body.session_id, role_id,
                                  body.voice, body.lang, hello)
     except voice.VoiceError as e:
         raise HTTPException(503, str(e))
@@ -273,7 +339,8 @@ async def voice_start(body: VoiceStartIn, request: Request):
 
 
 @app.post('/api/voice/stop')
-async def voice_stop(body: VoiceStopIn):
+async def voice_stop(body: VoiceStopIn, request: Request):
+    _user(request)
     try:
         await voice.stop(body.agent_id)
     except Exception as e:
@@ -329,12 +396,14 @@ def morning_brief(request: Request, lang: str | None = None, dry_run: bool = Fal
 
 # ── reports ───────────────────────────────────────────────────────────────
 @app.get('/api/reports/complaint/{cid}')
-def report(cid: str):
+def report(cid: str, request: Request):
+    _user(request)
     return T.complaint_report(cid)
 
 
 @app.get('/api/reports/ward')
-def ward_report():
+def ward_report(request: Request):
+    _user(request)
     return T.ward_brief()
 
 
@@ -353,7 +422,6 @@ class TurnIn(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
     session_id: str = Field(min_length=1, max_length=80)
     role_id: str | None = Field(None, max_length=20)
-    device_id: str | None = Field(None, max_length=80)   # or the X-Device-Id header
     lang: str | None = Field(None, max_length=4)
 
 
@@ -363,12 +431,13 @@ def _sse(event: str, data: dict) -> str:
 
 @app.post('/api/agent/turn')
 async def agent_turn(body: TurnIn, request: Request):
-    dev = _device(request, body.device_id)
+    user = _user(request)
+    dev, role_id = auth.owner_key(user['id']), _role(user, body.role_id or user['role_id'])
     _claim(body.session_id, dev)          # history and pending actions are read by session: owner only
 
     async def gen():
         try:
-            async for ev, data in run_turn(body.text, body.session_id, 'web', body.role_id, dev, body.lang):
+            async for ev, data in run_turn(body.text, body.session_id, 'web', role_id, dev, body.lang):
                 yield _sse(ev, data)
         except Exception:
             log.exception('turn failed')

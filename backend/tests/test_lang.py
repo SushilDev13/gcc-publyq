@@ -8,6 +8,7 @@ from backend.app import tools as T
 from backend.app import voice
 from backend.app.config import settings
 from backend.app.main import app
+from backend.tests.conftest import as_user
 from backend.tests.test_agent_e2e import say
 
 api = TestClient(app)
@@ -57,8 +58,8 @@ def test_every_call_hears_three_languages(monkeypatch):
 
     monkeypatch.setattr(voice.AgoraAgent, 'create_async_session', fake_create)
     body = {'channel': 'gcc-h', 'agent_uid': 22, 'user_uid': 11, 'session_id': 'test-hi1', 'role_id': 'AE-D173',
-            'device_id': 'test-device-h', 'lang': 'hi'}
-    r = api.post('/api/voice/start', json=body).json()
+            'lang': 'hi'}
+    r = api.post('/api/voice/start', json=body, headers=as_user('test-device-h')).json()
     assert r['lang'] == 'hi' and r['greeting'].startswith('नमस्ते')
     assert captured['agent']._turn_detection['language'] == ['en-IN', 'ta-IN', 'hi-IN']
     _, _, tts = voice.vendors('s', None, 'x', 'anisha', 'hi')
@@ -76,13 +77,12 @@ def test_restart_opens_with_the_saved_answer(monkeypatch):
     monkeypatch.setattr(voice, 'start', fake_start)
     out = say('what is on my plate today?', 'test-hi2', role='AE-D173')
     tid = out['done']['turn_id']
-    body = {'channel': 'c', 'agent_uid': 3, 'user_uid': 1, 'session_id': 'test-hi2', 'device_id': 'test-device-1',
-            'lang': 'en', 'greet_turn_id': tid}
-    assert api.post('/api/voice/start', json=body).json()['greeting'] == out['text']
+    body = {'channel': 'c', 'agent_uid': 3, 'user_uid': 1, 'session_id': 'test-hi2', 'lang': 'en', 'greet_turn_id': tid}
+    me = as_user('test-device-1')
+    assert api.post('/api/voice/start', json=body, headers=me).json()['greeting'] == out['text']
     other = {**body, 'session_id': 'test-hi3'}
-    assert api.post('/api/voice/start', json=other).status_code == 404     # only this conversation's turns
-    stranger = {**body, 'device_id': 'test-device-stranger'}
-    assert api.post('/api/voice/start', json=stranger).status_code == 404  # nor another device's conversation
+    assert api.post('/api/voice/start', json=other, headers=me).status_code == 404     # only this conversation's turns
+    assert api.post('/api/voice/start', json=body, headers=as_user('test-stranger')).status_code == 404
 
 
 def test_call_holds_when_the_speaker_switches_language(monkeypatch):

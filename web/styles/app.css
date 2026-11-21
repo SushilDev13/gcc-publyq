@@ -235,3 +235,15 @@ ul.linklist a.pq { margin-top: 0; }
 .hint.bad { color: var(--crit); }
 .divider.bad { color: var(--crit); }
 .callbar #callState { margin-right: auto; }
+
+/* ── sign-in ────────────────────────────────────────────────────────── */
+body.signed-out .dock, body.signed-out .top-actions > :not(.theme-btn) { display: none !important; }
+.signin { text-align: center; padding: 64px 0 24px; display: grid; justify-items: center; gap: 10px; }
+.signin h1 { font-family: var(--display); font-size: clamp(26px, 6vw, 34px); letter-spacing: -0.02em; }
+.signin p { color: var(--fg-muted); max-width: 36ch; }
+.signin #tgLogin { min-height: 48px; margin-top: 12px; }
+.signin .err { color: var(--crit); font-size: 13.5px; min-height: 1.5em; }
+.account { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; padding-top: 14px;
+  border-top: 1px solid var(--line); font-size: 13px; color: var(--fg-muted); }
+.account .signout { border: 1px solid var(--line-2); border-radius: 999px; padding: 6px 14px; font-weight: 600; color: var(--fg); }
+.account .signout:hover { border-color: var(--crit); color: var(--crit); }

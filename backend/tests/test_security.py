@@ -6,41 +6,42 @@ from backend.app import db, dbquery
 from backend.app import tools as T
 from backend.app.config import settings
 from backend.app.main import app
+from backend.tests.conftest import as_user, owner_of
 
 api = TestClient(app)
-VICTIM, ATTACKER = {'X-Device-Id': 'test-device-victim'}, {'X-Device-Id': 'test-device-attacker'}
+VICTIM, ATTACKER = 'test-victim-user', 'test-attacker-user'
 
 
 def _victim_conversation(sid='test-sec-victim') -> str:
     with api.stream('POST', '/api/agent/turn', json={'text': 'open 2026-185OET', 'session_id': sid},
-                    headers=VICTIM) as r:
+                    headers=as_user(VICTIM)) as r:
         list(r.iter_lines())
     return sid
 
 
-# ── conversation history belongs to one device ──────────────────────────
-def test_history_is_private_to_its_device():
+# ── conversation history belongs to one person ──────────────────────────
+def test_history_is_private_to_its_owner():
     sid = _victim_conversation()
-    assert api.get(f'/api/conversations/{sid}', headers=VICTIM).status_code == 200
-    assert api.get(f'/api/conversations/{sid}', headers=ATTACKER).status_code == 404
-    assert all(c['id'] != sid for c in api.get('/api/conversations', headers=ATTACKER).json()['items'])
-    assert api.delete(f'/api/conversations/{sid}', headers=ATTACKER).status_code == 404
-    assert api.get('/api/conversations').status_code == 401                    # no device, no history
+    assert api.get(f'/api/conversations/{sid}', headers=as_user(VICTIM)).status_code == 200
+    assert api.get(f'/api/conversations/{sid}', headers=as_user(ATTACKER)).status_code == 404
+    assert all(c['id'] != sid for c in api.get('/api/conversations', headers=as_user(ATTACKER)).json()['items'])
+    assert api.delete(f'/api/conversations/{sid}', headers=as_user(ATTACKER)).status_code == 404
+    assert api.get('/api/conversations').status_code == 401                    # not signed in, no history
 
 
 def test_cannot_continue_someone_elses_conversation():
     sid = _victim_conversation()
-    r = api.post('/api/agent/turn', json={'text': 'what did we discuss?', 'session_id': sid}, headers=ATTACKER)
+    r = api.post('/api/agent/turn', json={'text': 'what did we discuss?', 'session_id': sid}, headers=as_user(ATTACKER))
     assert r.status_code == 404
     assert db.fetchone('SELECT count(*) n FROM turns WHERE session_id = %s', (sid,))['n'] == 1
 
 
 def test_cannot_start_a_call_into_someone_elses_conversation():
     sid = _victim_conversation()
-    assert api.get('/api/voice/config', params={'session_id': sid}, headers=ATTACKER).status_code == 404
+    assert api.get('/api/voice/config', params={'session_id': sid}, headers=as_user(ATTACKER)).status_code == 404
     body = {'channel': 'c', 'agent_uid': 2, 'user_uid': 1, 'session_id': sid}
-    assert api.post('/api/voice/start', json=body, headers=ATTACKER).status_code == 404
-    assert db.fetchone('SELECT device_id FROM conversations WHERE id = %s', (sid,))['device_id'] == VICTIM['X-Device-Id']
+    assert api.post('/api/voice/start', json=body, headers=as_user(ATTACKER)).status_code == 404
+    assert db.fetchone('SELECT device_id FROM conversations WHERE id = %s', (sid,))['device_id'] == owner_of(VICTIM)
 
 
 # ── actions: only the proposing conversation's owner decides ─────────────
@@ -48,16 +49,16 @@ def test_stranger_cannot_confirm_or_cancel_an_action():
     sid = _victim_conversation()
     a = T.propose_action('note', '2026-185OET', note='victim note', session_id=sid)
     for op in ('confirm', 'cancel'):
-        assert api.post(f"/api/actions/{a['id']}/{op}", headers=ATTACKER).status_code == 404
+        assert api.post(f"/api/actions/{a['id']}/{op}", headers=as_user(ATTACKER)).status_code == 404
         assert api.post(f"/api/actions/{a['id']}/{op}").status_code == 401
     assert db.fetchone('SELECT status FROM actions WHERE id = %s', (a['id'],))['status'] == 'proposed'
-    assert api.post(f"/api/actions/{a['id']}/confirm", headers=VICTIM).json()['status'] == 'confirmed'
+    assert api.post(f"/api/actions/{a['id']}/confirm", headers=as_user(VICTIM)).json()['status'] == 'confirmed'
 
 
 def test_cannot_plant_a_proposal_in_someone_elses_conversation():
     sid = _victim_conversation()
     r = api.post('/api/actions', json={'kind': 'escalate', 'complaint_id': '2026-185OET', 'session_id': sid},
-                 headers=ATTACKER)
+                 headers=as_user(ATTACKER))
     assert r.status_code == 404 and not T.latest_proposed(sid)
 
 
@@ -114,6 +115,6 @@ def test_cross_origin_browsers_get_no_grant():
 
 
 def test_security_headers_and_no_caching_of_private_data():
-    r = api.get('/api/conversations', headers=VICTIM)
+    r = api.get('/api/conversations', headers=as_user(VICTIM))
     assert r.headers['x-frame-options'] == 'DENY' and r.headers['x-content-type-options'] == 'nosniff'
     assert r.headers['cache-control'] == 'no-store'

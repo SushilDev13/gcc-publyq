@@ -117,8 +117,9 @@ def test_tamil_mode_reaches_claude(claude):
     claude.script += [text_msg('உங்களிடம் நிலுவையில் புகார்கள் இல்லை.')]
     from backend.tests.test_agent_e2e import api
     body = {'text': 'இன்று என்ன வேலை?', 'session_id': 'test-llm-ta', 'role_id': 'AEL-D173',
-            'device_id': 'test-device-1', 'lang': 'ta'}
-    with api.stream('POST', '/api/agent/turn', json=body) as r:
+            'lang': 'ta'}
+    from backend.tests.conftest import as_user
+    with api.stream('POST', '/api/agent/turn', json=body, headers=as_user()) as r:
         list(r.iter_lines())
     assert 'Reply in Tamil' in claude.seen[0]['system'][1]['text']
 

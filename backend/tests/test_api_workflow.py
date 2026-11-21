@@ -3,14 +3,17 @@ from fastapi.testclient import TestClient
 
 from backend.app import db
 from backend.app.main import app
+from backend.tests.conftest import as_user, owner_of
 
 api = TestClient(app)
 SID = 'test-api'
-ME = {'X-Device-Id': 'test-device-api'}
+WHO = 'test-device-api'
 
 
 def _own_session():
-    db.execute("INSERT INTO conversations (id, device_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (SID, ME['X-Device-Id']))
+    global ME
+    ME = as_user(WHO)
+    db.execute("INSERT INTO conversations (id, device_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (SID, owner_of(WHO)))
 
 
 def test_health():
@@ -37,7 +40,7 @@ def test_escalate_requires_confirm_then_schedules_follow_up():
     again = api.post(f"/api/actions/{a['id']}/confirm", headers=ME)
     assert again.status_code == 400  # cannot confirm twice
 
-    rep = api.get('/api/reports/complaint/2026-185OET').json()['markdown']
+    rep = api.get('/api/reports/complaint/2026-185OET', headers=ME).json()['markdown']
     assert f"#{a['id']} escalate" in rep and 'not written back to the GCC portal' in rep
 
 
@@ -64,5 +67,5 @@ def test_media_path_traversal_blocked():
 
 
 def test_ward_brief():
-    r = api.get('/api/reports/ward').json()
+    r = api.get('/api/reports/ward', headers=as_user()).json()
     assert 'Ward 173' in r['say'] and '96 open' in r['say']

@@ -67,13 +67,15 @@ def test_history_list_load_delete():
     dev = 'test-device-hist'
     say("what's urgent", 'test-hist-1', device=dev)
     say('open the first one', 'test-hist-1', device=dev)
-    items = api.get('/api/conversations', params={'device_id': dev}).json()['items']
+    from backend.tests.conftest import as_user
+    me = as_user(dev)
+    items = api.get('/api/conversations', headers=me).json()['items']
     assert [c['id'] for c in items] == ['test-hist-1'] and items[0]['turns'] == 2
-    conv = api.get('/api/conversations/test-hist-1', params={'device_id': dev}).json()
+    conv = api.get('/api/conversations/test-hist-1', headers=me).json()
     assert len(conv['turns']) == 2 and conv['turns'][1]['cards'][0]['type'] == 'complaint'
-    assert api.get('/api/conversations/test-hist-1', params={'device_id': 'someone-else-x'}).status_code == 404
-    assert api.delete('/api/conversations/test-hist-1', params={'device_id': dev}).json()['ok']
-    assert api.get('/api/conversations', params={'device_id': dev}).json()['items'] == []
+    assert api.get('/api/conversations/test-hist-1', headers=as_user('someone-else-x')).status_code == 404
+    assert api.delete('/api/conversations/test-hist-1', headers=me).json()['ok']
+    assert api.get('/api/conversations', headers=me).json()['items'] == []
 
 
 def test_roles_endpoint():

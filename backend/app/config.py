@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     # Telegram: the only outbound channel
     bot_token: str = ''
     group_chat_id: str = ''
+    # Sign-in: Telegram accounts in the ward group. Admins (comma-separated Telegram user ids) can also pick
+    # the Admin post; the group's owner is always admin. The bot's username is looked up if unset.
+    admin_telegram_ids: str = ''
+    telegram_bot_username: str = ''
     # Morning brief (Vercel Cron, 07:00 IST): language and the secret Vercel signs cron calls with
     brief_lang: str = 'ta'
     cron_secret: str = ''

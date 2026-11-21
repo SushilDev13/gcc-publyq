@@ -1,7 +1,8 @@
 /* GCC Publyq web client — vanilla JS, no build step.
  * Voice first: one big mic. A call hears English, Tamil and Hindi; the language the person speaks becomes the
  * language of the answer, the voice and this screen. Typing works the same way.
- * Role first: the user picks (or says) which GCC post they are; every answer is scoped to it.
+ * Signed in with Telegram (members of the Ward 173 group); the session is an HttpOnly cookie the page never sees.
+ * Role first: the person picks (or says) which GCC post they are, saved to their account; answers are scoped to it.
  * Conversations are stored server-side per device and can be resumed from History. */
 (() => {
   'use strict';
@@ -15,11 +16,9 @@
     set(k, v) { try { v == null ? localStorage.removeItem('gcc.' + k) : localStorage.setItem('gcc.' + k, v); } catch (_) {} },
   };
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
-  // This browser's private key to its own history: random, never shown, sent only as a header (not in URLs).
-  const DEVICE = store.get('device') || (() => { const d = 'dev-' + uid(); store.set('device', d); return d; })();
-  const AUTH = { 'X-Device-Id': DEVICE };
+  let me = null;                 // the signed-in person {id, name, role_id, is_admin}
   let convId = store.get('conv') || null;
-  let roleId = store.get('role') || null;
+  let roleId = null;
   let roles = [];
   const seenTurns = new Set();   // turn IDs already on screen (streamed or loaded)
   let voiceStatus = { ready: false, missing: [] };
@@ -28,7 +27,8 @@
   // ── the screen speaks the conversation's language (set by what the person last said) ──
   const LANGS = ['en', 'ta', 'hi'];
   const S = {
-    en: { tap: 'Tap and talk', orAsk: 'Or ask', type: 'Or type here…', who: 'Who are you?', whoSub: 'Pick your post. Answers follow your responsibilities.',
+    en: { signIn: 'Sign in', signInSub: 'Use the Telegram account you use in the Ward 173 group.', notSetUp: "Sign-in isn't set up yet.", signOut: 'Sign out', signInFailed: "Couldn't sign in.",
+      tap: 'Tap and talk', orAsk: 'Or ask', type: 'Or type here…', who: 'Who are you?', whoSub: 'Pick your post. Answers follow your responsibilities.',
       field: 'In the field', lead: 'Leadership', open: (n) => `${n} open`, safety: (n) => `${n} safety`,
       desk: (n, s) => n ? `${n} open on your desk${s ? `, ${s} safety risk` : ''}.` : 'Nothing open on your desk.',
       connecting: 'Connecting…', listening: 'Listening. Speak in English, Tamil or Hindi.', switching: 'Switching to English…', end: 'End',
@@ -36,7 +36,8 @@
       offline: "Can't reach the server.", footer: (n) => `${n} complaints · Ward 173 (Adyar), Chennai`, history: 'Conversations', none: 'No conversations yet.',
       loading: 'Loading…', resumed: 'Continued from earlier', waiting: 'Waiting for your confirmation', recorded: 'Recorded', confirm: 'Confirm', cancel: 'Cancel',
       savedHere: 'Saved here and shared on Telegram, not on the GCC portal.', noServer: "I couldn't reach the server. Check your connection and try again." },
-    ta: { tap: 'தட்டிப் பேசுங்கள்', orAsk: 'அல்லது கேளுங்கள்', type: 'அல்லது இங்கே எழுதுங்கள்…', who: 'நீங்கள் யார்?', whoSub: 'உங்கள் பதவியைத் தேர்ந்தெடுங்கள்.',
+    ta: { signIn: 'உள்நுழையுங்கள்', signInSub: 'வார்டு 173 குழுவில் உள்ள உங்கள் Telegram கணக்கைப் பயன்படுத்துங்கள்.', notSetUp: "உள்நுழைவு இன்னும் அமைக்கப்படவில்லை.", signOut: 'வெளியேறு', signInFailed: "உள்நுழைய முடியவில்லை.",
+      tap: 'தட்டிப் பேசுங்கள்', orAsk: 'அல்லது கேளுங்கள்', type: 'அல்லது இங்கே எழுதுங்கள்…', who: 'நீங்கள் யார்?', whoSub: 'உங்கள் பதவியைத் தேர்ந்தெடுங்கள்.',
       field: 'களப் பணி', lead: 'தலைமை', open: (n) => `${n} நிலுவை`, safety: (n) => `${n} அபாயம்`,
       desk: (n, s) => n ? `உங்களிடம் ${n} புகார்கள் நிலுவையில்${s ? `, ${s} பாதுகாப்பு அபாயம்` : ''}.` : 'நிலுவையில் புகார்கள் இல்லை.',
       connecting: 'இணைக்கிறது…', listening: 'கேட்கிறேன். தமிழ், ஆங்கிலம் அல்லது இந்தியில் பேசுங்கள்.', switching: 'தமிழுக்கு மாறுகிறது…', end: 'முடி',
@@ -44,7 +45,8 @@
       offline: 'சர்வருடன் இணைக்க முடியவில்லை.', footer: (n) => `${n} புகார்கள் · வார்டு 173 (அடையாறு), சென்னை`, history: 'உரையாடல்கள்', none: 'உரையாடல்கள் இல்லை.',
       loading: 'ஏற்றுகிறது…', resumed: 'முன்பு விட்ட இடத்திலிருந்து', waiting: 'உங்கள் உறுதிக்குக் காத்திருக்கிறது', recorded: 'பதிவு செய்யப்பட்டது', confirm: 'உறுதி செய்', cancel: 'ரத்து',
       savedHere: 'இங்கே பதிவாகி Telegram-ல் பகிரப்படும்; GCC போர்டலில் அல்ல.', noServer: 'சர்வருடன் இணைக்க முடியவில்லை. இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.' },
-    hi: { tap: 'दबाएँ और बोलें', orAsk: 'या पूछें', type: 'या यहाँ लिखें…', who: 'आप कौन हैं?', whoSub: 'अपना पद चुनिए।',
+    hi: { signIn: 'साइन इन करें', signInSub: 'वार्ड 173 ग्रुप वाले अपने Telegram अकाउंट से साइन इन करें।', notSetUp: "साइन-इन अभी सेट नहीं है।", signOut: 'साइन आउट', signInFailed: "साइन इन नहीं हो पाया।",
+      tap: 'दबाएँ और बोलें', orAsk: 'या पूछें', type: 'या यहाँ लिखें…', who: 'आप कौन हैं?', whoSub: 'अपना पद चुनिए।',
       field: 'फ़ील्ड', lead: 'नेतृत्व', open: (n) => `${n} खुली`, safety: (n) => `${n} जोखिम`,
       desk: (n, s) => n ? `आपके पास ${n} शिकायतें खुली हैं${s ? `, ${s} सुरक्षा जोखिम` : ''}।` : 'कोई शिकायत खुली नहीं है।',
       connecting: 'जुड़ रहा है…', listening: 'सुन रही हूँ। हिंदी, अंग्रेज़ी या तमिल में बोलिए।', switching: 'हिंदी में बदल रही हूँ…', end: 'बंद करें',
@@ -262,8 +264,9 @@
   CHIPS.ward = CHIPS.leadership;
   const MIC_SVG = '<svg viewBox="0 0 24 24" width="44" height="44" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
 
-  function setRole(id, { announce } = {}) {
-    roleId = id; store.set('role', id);
+  function setRole(id, { announce, persist } = {}) {
+    roleId = id;
+    if (persist && me && me.role_id !== id) { me.role_id = id; api('/api/auth/role', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role_id: id }) }).catch(() => {}); }
     const r = roleOf(id);
     pill.hidden = !r;
     if (r) { pill.textContent = roleName(r); pill.title = r.post; }
@@ -318,7 +321,7 @@
   }
 
   async function loadConversation(id) {
-    const res = await fetch(`${API}/api/conversations/${encodeURIComponent(id)}`, { headers: AUTH });
+    const res = await fetch(`${API}/api/conversations/${encodeURIComponent(id)}`);
     if (!res.ok) return false;
     const c = await res.json();
     convId = id; store.set('conv', id);
@@ -346,9 +349,10 @@
     const sheet = $('#historySheet'), list = $('#historyList');
     list.innerHTML = `<li class="note">${esc(t().loading)}</li>`;
     sheet.hidden = false;
+    renderAccount();
     $('[data-act="close"]', sheet).focus();
     try {
-      const { items } = await (await fetch(`${API}/api/conversations`, { headers: AUTH })).json();
+      const { items } = await api('/api/conversations');
       list.innerHTML = items.length ? items.map((c) => `<li class="${c.id === convId ? 'on' : ''}">
         <button class="open" data-conv="${esc(c.id)}"><b>${esc(c.title || 'Conversation')}</b>
         <span>${esc(roleOf(c.role_id) ? roleName(roleOf(c.role_id)) : 'Ward 173')} · ${esc(ago(c.updated_at))}</span></button>
@@ -356,6 +360,10 @@
     } catch (_) { list.innerHTML = `<li class="note">${esc(t().offline)}</li>`; }
   }
   const closeHistory = () => { $('#historySheet').hidden = true; };
+  const renderAccount = () => {
+    $('#account').innerHTML = me ? `<span>${esc(me.name)}${me.username ? ` · @${esc(me.username)}` : ''}</span>
+      <button class="signout" data-act="signout">${esc(t().signOut)}</button>` : '';
+  };
 
   // ── the turn (queued, never dropped) ───────────────────────────────────
   const queue = [];
@@ -380,8 +388,9 @@
     const sayEl = $('.say', turn), cardsEl = $('.cards', turn);
     let said = '';
     try {
-      const res = await fetch(`${API}/api/agent/turn`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...AUTH },
+      const res = await fetch(`${API}/api/agent/turn`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, session_id: convId, role_id: roleId, lang }) });
+      if (res.status === 401) { busy = false; return showSignIn(); }
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       const reader = res.body.getReader(), dec = new TextDecoder();
       let buf = '';
@@ -402,7 +411,7 @@
             const n = card(data); if (n) cardsEl.append(n);
           } else if (ev === 'done') {
             if (data.turn_id) seenTurns.add(data.turn_id);
-            if (data.role && data.role !== roleId) setRole(data.role);
+            if (data.role && data.role !== roleId) setRole(data.role, { persist: true });
             if (data.lang) setLang(data.lang);
           }
         }
@@ -429,7 +438,8 @@
   });
   const callState = (txt) => { $('#callState').textContent = txt; };
   const api = async (path, opts) => {
-    const r = await fetch(`${API}${path}`, { ...opts, headers: { ...AUTH, ...(opts?.headers || {}) } });
+    const r = await fetch(`${API}${path}`, opts);
+    if (r.status === 401 && me) { me = null; showSignIn(); }
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.detail || d.error || `HTTP ${r.status}`);
     return d;
@@ -511,7 +521,7 @@
         $('.say', el).textContent = tn.reply || '';
         for (const cd of tn.cards || []) { const n = card(cd); if (n) $('.cards', el).append(n); }
         feed.append(el);
-        if (tn.role_id && tn.role_id !== roleId) setRole(tn.role_id);
+        if (tn.role_id && tn.role_id !== roleId) setRole(tn.role_id, { persist: true });
         if (call && tn.lang && tn.lang !== call.lang) switchLanguage(tn.lang, tn.id);
         else if (tn.lang) setLang(tn.lang);
         scroll();
@@ -527,10 +537,13 @@
     if (!t) { if (e.target.id === 'historySheet') closeHistory(); return; }
     e.preventDefault();
     if (t.dataset.say) return send(t.dataset.say);
-    if (t.dataset.role) { setRole(t.dataset.role); return feed.querySelector('.turn') ? send(`I am the ${roleOf(t.dataset.role).label}`) : showHello(); }
+    if (t.dataset.role) {
+      const id = t.dataset.role; setRole(id, { persist: true });
+      return feed.querySelector('.turn') && id !== 'ADMIN' ? send(`I am the ${roleOf(id).label}`) : showHello();
+    }
     if (t.dataset.conv) { closeHistory(); return loadConversation(t.dataset.conv); }
     if (t.dataset.del) {
-      await fetch(`${API}/api/conversations/${encodeURIComponent(t.dataset.del)}`, { method: 'DELETE', headers: AUTH });
+      await fetch(`${API}/api/conversations/${encodeURIComponent(t.dataset.del)}`, { method: 'DELETE' });
       if (t.dataset.del === convId) newConversation();
       return openHistory();
     }
@@ -542,6 +555,7 @@
     else if (act === 'history') openHistory();
     else if (act === 'close') closeHistory();
     else if (act === 'roles') showRolePicker();
+    else if (act === 'signout') signOut();
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeHistory(); });
   // ── theme (as app.publyq.in: light by default, an explicit choice is remembered) ──
@@ -553,6 +567,37 @@
   }
   if (document.documentElement.dataset.theme === 'dark') $('.theme-btn').setAttribute('aria-label', 'Switch to light mode');
 
+  // ── sign-in (Telegram Login Widget; the server checks the signature and ward-group membership) ──
+  async function showSignIn() {
+    if (call) await endCall({ quiet: true });
+    document.body.classList.add('signed-out'); pill.hidden = true;
+    feed.innerHTML = '';
+    let cfg = {};
+    try { cfg = await (await fetch(`${API}/api/auth/config`)).json(); } catch (_) {}
+    const box = h(`<div class="signin"><img src="assets/logo.png" alt="" width="56" height="56" />
+      <h1>${esc(t().signIn)}</h1><p>${esc(cfg.bot_username ? t().signInSub : t().notSetUp)}</p>
+      <div id="tgLogin"></div><p class="err" role="alert"></p></div>`);
+    feed.append(box);
+    if (!cfg.bot_username) return;
+    window.gccTelegramAuth = async (user) => {
+      const r = await fetch(`${API}/api/auth/telegram`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(user) });
+      if (r.ok) return location.reload();
+      const d = await r.json().catch(() => ({}));
+      $('.err', box).textContent = d.detail || t().signInFailed;
+    };
+    const sc = document.createElement('script');
+    sc.async = true; sc.src = 'https://telegram.org/js/telegram-widget.js?22';
+    Object.assign(sc.dataset, { telegramLogin: cfg.bot_username, size: 'large', radius: '999', onauth: 'gccTelegramAuth(user)', lang });
+    $('#tgLogin', box).append(sc);
+  }
+
+  async function signOut() {
+    if (call) await endCall({ quiet: true });
+    await fetch(`${API}/api/auth/logout`, { method: 'POST' }).catch(() => {});
+    store.set('conv', null);
+    location.reload();
+  }
+
   // ── boot ───────────────────────────────────────────────────────────────
   let statusNote = null;   // a problem worth showing; otherwise the plain ward line
   function status(text, bad) { statusNote = bad ? text : null; renderStatus(); }
@@ -562,6 +607,10 @@
   }
   (async () => {
     try {
+      const meRes = await fetch(`${API}/api/auth/me`);
+      me = meRes.ok ? await meRes.json() : null;
+    } catch (_) { me = null; }
+    try {
       const [hRes, rRes, vRes] = await Promise.all([fetch(`${API}/api/health`), fetch(`${API}/api/roles`), fetch(`${API}/api/voice/status`)]);
       health = await hRes.json();
       voiceStatus = await vRes.json().catch(() => voiceStatus);
@@ -569,11 +618,14 @@
       roles = (await rRes.json()).roles;
     } catch (_) { health = { ok: false }; }
     setLang(lang);
+    if (!me) return showSignIn();                                 // a brief link waits in the URL until sign-in
+    document.body.classList.remove('signed-out');
+    roleId = me.role_id;
     const link = new URLSearchParams(location.search);
     if (link.has('role') || link.has('ask') || link.has('lang')) {
       history.replaceState(null, '', location.pathname);         // a link is applied once, then forgotten
       if (LANGS.includes(link.get('lang'))) setLang(link.get('lang'));
-      if (roleOf(link.get('role'))) setRole(link.get('role'));
+      if (roleOf(link.get('role'))) setRole(link.get('role'), { persist: true });
       convId = 'c-' + uid(); store.set('conv', convId);           // a fresh conversation for the link
       const ask = link.get('ask') || '';
       const open = ask.startsWith('open:') ? ask.slice(5).toUpperCase() : '';

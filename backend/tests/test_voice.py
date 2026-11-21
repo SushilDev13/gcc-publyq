@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from backend.app import voice
 from backend.app.config import settings
 from backend.app.main import app
+from backend.tests.conftest import as_user
 
 api = TestClient(app)
 
@@ -23,14 +24,14 @@ def test_status_reports_missing(monkeypatch):
 
 def test_start_refuses_when_unconfigured(monkeypatch):
     monkeypatch.setattr(settings, 'murf_api_key', '')
-    body = {'channel': 'c', 'agent_uid': 2, 'user_uid': 1, 'session_id': 'test-v1', 'device_id': 'test-device-v'}
-    r = api.post('/api/voice/start', json=body)
+    body = {'channel': 'c', 'agent_uid': 2, 'user_uid': 1, 'session_id': 'test-v1'}
+    r = api.post('/api/voice/start', json=body, headers=as_user('test-device-v'))
     assert r.status_code == 503 and 'MURF_API_KEY' in r.json()['detail']
 
 
 def test_config_issues_rtc_token(monkeypatch):
     _configure(monkeypatch)
-    r = api.get('/api/voice/config', params={'session_id': 'test-v2'}, headers={'X-Device-Id': 'test-device-v'}).json()
+    r = api.get('/api/voice/config', params={'session_id': 'test-v2'}, headers=as_user('test-device-v')).json()
     assert r['token'] and r['uid'] > 0 and r['agent_uid'] > 0 and r['channel'].startswith('gcc-')
 
 
@@ -49,8 +50,8 @@ def test_agent_is_wired_to_brain_and_murf(monkeypatch):
 
     monkeypatch.setattr(voice.AgoraAgent, 'create_async_session', fake_create)
     body = {'channel': 'gcc-x', 'agent_uid': 22, 'user_uid': 11, 'session_id': 'test-v3', 'role_id': 'AEL-D173',
-            'device_id': 'test-device-v'}
-    r = api.post('/api/voice/start', json=body).json()
+            }
+    r = api.post('/api/voice/start', json=body, headers=as_user('test-device-v')).json()
     assert r['agent_id'] == 'agent-123' and 'Assistant Engineer (Electrical)' in r['greeting']
     _, llm_v, tts_v = voice.vendors('test-v3', 'AEL-D173', 'hi')
     llm, tts = llm_v.to_config(), tts_v.to_config()
@@ -59,7 +60,7 @@ def test_agent_is_wired_to_brain_and_murf(monkeypatch):
     assert tts['vendor'] == 'murf' and tts['params']['model'] == 'falcon-2.1'
     assert tts['params']['voiceId'] == 'en-IN-anisha' and tts['params']['locale'] == 'en-IN'
     assert captured['session']['remote_uids'] == ['11']
-    hist = api.get('/api/conversations', params={'device_id': 'test-device-v'}).json()['items']
+    hist = api.get('/api/conversations', headers=as_user('test-device-v')).json()['items']
     assert any(c['id'] == 'test-v3' for c in hist)            # call appears in history
 
 
@@ -75,9 +76,8 @@ def test_voice_choice_and_stt(monkeypatch):
     import pytest
     with pytest.raises(voice.VoiceError):
         voice.vendors('s', None, 'hi', 'matthew')
-    body = {'channel': 'c', 'agent_uid': 2, 'user_uid': 1, 'session_id': 'test-v9', 'device_id': 'test-device-v',
-            'voice': 'matthew'}
-    assert api.post('/api/voice/start', json=body).status_code == 503
+    body = {'channel': 'c', 'agent_uid': 2, 'user_uid': 1, 'session_id': 'test-v9', 'voice': 'matthew'}
+    assert api.post('/api/voice/start', json=body, headers=as_user('test-device-v')).status_code == 503
 
 
 def test_status_lists_voices():
