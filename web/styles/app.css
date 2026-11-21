@@ -1,5 +1,8 @@
 /* GCC Publyq — app styles on top of Publyq tokens.css (dark :root, light via [data-theme='light']) */
-:root { --accent-text: var(--brand-hi); --scrim: rgba(0, 0, 0, .5); }
+:root { --accent-text: var(--brand-hi); --scrim: rgba(0, 0, 0, .5);
+  /* Tamil glyphs fall back to Anek Tamil (Publyq's Tamil face) inside any English UI */
+  --body: 'Inter', 'Anek Tamil', system-ui, -apple-system, sans-serif;
+  --display: 'Bricolage Grotesque', 'Anek Tamil', 'Inter', system-ui, sans-serif; }
 :root[data-theme='light'] { --accent-text: var(--brand-deep); --scrim: rgba(13, 26, 31, .35); }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 [hidden] { display: none !important; }

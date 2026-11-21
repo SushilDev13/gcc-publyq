@@ -329,7 +329,7 @@
     let said = '';
     try {
       const res = await fetch(`${API}/api/agent/turn`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, session_id: convId, role_id: roleId, device_id: DEVICE }) });
+        body: JSON.stringify({ text, session_id: convId, role_id: roleId, device_id: DEVICE, lang: langSel.value }) });
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       const reader = res.body.getReader(), dec = new TextDecoder();
       let buf = '';
@@ -395,7 +395,7 @@
       await loadScript(RTC_SDK);
       const cfg = await api(`/api/voice/config?session_id=${encodeURIComponent(convId)}`);
       const started = await api('/api/voice/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel: cfg.channel, agent_uid: cfg.agent_uid, user_uid: cfg.uid, session_id: convId, role_id: roleId, device_id: DEVICE, voice: $('#voice').value }) });
+        body: JSON.stringify({ channel: cfg.channel, agent_uid: cfg.agent_uid, user_uid: cfg.uid, session_id: convId, role_id: roleId, device_id: DEVICE, voice: $('#voice').value, lang: langSel.value }) });
       $('#callVoice').textContent = `Agora · Murf Falcon 2.1 · ${started.voice}`;
       call.agentId = started.agent_id;
       const client = window.AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
@@ -474,8 +474,21 @@
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeHistory(); });
   const voiceSel = $('#voice');
+  const langSel = $('#lang');
+  function applyLang() {
+    const ta = langSel.value === 'ta';
+    document.documentElement.lang = ta ? 'ta' : 'en';
+    const abhinav = voiceSel.querySelector('option[value="abhinav"]');
+    abhinav.disabled = ta;
+    abhinav.textContent = ta ? 'Abhinav (English only)' : 'Abhinav';
+    if (ta && voiceSel.value === 'abhinav') voiceSel.value = 'anisha';
+    input.placeholder = ta ? 'தட்டச்சு செய்யுங்கள், அல்லது மைக்கைத் தட்டிப் பேசுங்கள்…' : 'Type, or tap the mic to talk…';
+  }
   if (['anisha', 'abhinav'].includes(store.get('voice'))) voiceSel.value = store.get('voice');
+  if (['en', 'ta'].includes(store.get('lang'))) langSel.value = store.get('lang');
   voiceSel.addEventListener('change', () => store.set('voice', voiceSel.value));
+  langSel.addEventListener('change', () => { store.set('lang', langSel.value); applyLang(); });
+  applyLang();
 
   // ── theme (as app.publyq.in: light by default, an explicit choice is remembered) ──
   function setTheme(theme) {
@@ -498,6 +511,18 @@
       roles = (await rRes.json()).roles;
       status(hd.ok ? `${hd.complaints} records · ${voiceStatus.llm ? 'Claude on' : 'no LLM key'} · Telegram ${voiceStatus.telegram ? 'on' : 'off'}` : 'database down', !hd.ok);
     } catch (_) { status('offline', true); }
+    const link = new URLSearchParams(location.search);
+    if (link.has('role') || link.has('ask') || link.has('lang')) {
+      history.replaceState(null, '', location.pathname);         // a link is applied once, then forgotten
+      if (['en', 'ta'].includes(link.get('lang'))) { langSel.value = link.get('lang'); store.set('lang', langSel.value); applyLang(); }
+      if (roleOf(link.get('role'))) setRole(link.get('role'));
+      convId = 'c-' + uid(); store.set('conv', convId);           // a fresh conversation for the link
+      const ask = link.get('ask') || '';
+      const open = ask.startsWith('open:') ? ask.slice(5).toUpperCase() : '';
+      if (open && /^20\d{2}-\d{3,}[A-Z]{3}$/.test(open)) return send(`Open ${open}`);
+      if (ask === 'brief') return send(langSel.value === 'ta' ? 'இன்றைய காலை சுருக்கம் சொல்லுங்கள்' : 'Brief me');
+      return roleId ? showHello() : showRolePicker();
+    }
     if (roleId && roleOf(roleId)) setRole(roleId); else roleId = null;
     if (!(convId && await loadConversation(convId).catch(() => false))) { convId = null; store.set('conv', null); roleId ? showHello() : showRolePicker(); }
   })();

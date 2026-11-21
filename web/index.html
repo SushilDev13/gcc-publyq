@@ -21,7 +21,7 @@
   <link rel="icon" href="assets/favicon-32.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Anek+Tamil:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="styles/tokens.css" />
   <link rel="stylesheet" href="styles/app.css" />
 </head>
@@ -72,10 +72,16 @@
       </button>
     </form>
     <div class="hint">
+      <label class="switch">Language
+        <select id="lang" aria-label="Conversation language">
+          <option value="en">English</option>
+          <option value="ta" lang="ta">தமிழ்</option>
+        </select>
+      </label>
       <label class="switch">Voice
         <select id="voice" aria-label="Assistant voice">
-          <option value="anisha">Anisha (en-IN)</option>
-          <option value="abhinav">Abhinav (en-IN)</option>
+          <option value="anisha">Anisha</option>
+          <option value="abhinav">Abhinav</option>
         </select>
       </label>
       <span id="status" class="status" aria-live="polite">connecting…</span>
