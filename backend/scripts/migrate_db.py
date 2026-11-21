@@ -4,6 +4,9 @@ conversations, turns) to Neon, then prove it arrived intact.
     .venv/bin/python -m backend.scripts.migrate_db              # target = PROD_DATABASE_URL in .env
     .venv/bin/python -m backend.scripts.migrate_db --target-env SOME_URL_VAR
     .venv/bin/python -m backend.scripts.migrate_db --replace    # target already has tables: drop + reload
+    # Neon created through the Vercel integration:
+    vercel env pull .env.vercel --environment=production
+    .venv/bin/python -m backend.scripts.migrate_db --env-file .env.vercel --target-env DATABASE_URL_UNPOOLED
 
 Steps: refuse a non-empty target unless --replace -> pg_dump | pg_restore over the
 *direct* endpoint (the -pooler endpoint is transaction-pooled and unsafe for a
@@ -38,9 +41,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--target-env', default='PROD_DATABASE_URL')
     ap.add_argument('--replace', action='store_true')
+    ap.add_argument('--env-file', default='.env', help='file holding the target URL (e.g. .env.vercel)')
     a = ap.parse_args()
 
-    target = (dotenv_values(ROOT / '.env').get(a.target_env) or '').strip().strip('"\'')
+    target = (dotenv_values(ROOT / a.env_file).get(a.target_env) or '').strip().strip('"\'')
     if not target.startswith(('postgres://', 'postgresql://')):
         print(f'{a.target_env} in .env is not a postgres:// connection string.')
         return 2
