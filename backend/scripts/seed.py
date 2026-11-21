@@ -15,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from backend.app.config import ROOT, settings  # noqa: E402
 from backend.app.text import toks  # noqa: E402
 
-C = ROOT / 'Complaints' / 'Images'
-O = ROOT / 'Officials'
+C = ROOT / 'data' / 'complaints'
+O = ROOT / 'data' / 'officials'
 SCHEMA = ROOT / 'backend' / 'db' / 'schema.sql'
 
 

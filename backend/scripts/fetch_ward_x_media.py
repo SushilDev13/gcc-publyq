@@ -16,7 +16,7 @@ to another post, that post's media is not the complainant's and is skipped
 
 Resumable: posts already done are skipped. Rerun to retry failures.
 
-  python fetch_ward_x_media.py --ward 173
+  python backend/scripts/fetch_ward_x_media.py --ward 173
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-PUBLYQ = HERE.parent.parent / "Publyq"
+PUBLYQ = HERE.parents[2] / "Publyq"
 sys.path.insert(0, str(PUBLYQ))
 
 import pandas as pd  # noqa: E402
@@ -64,7 +64,7 @@ def media_urls(m: dict) -> tuple[str, str]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ward", default="173")
-    ap.add_argument("--out", default=str(HERE / "Images"))
+    ap.add_argument("--out", default=str(HERE.parents[1] / "data" / "complaints"))
     ap.add_argument("--gap", type=float, default=1.5)
     args = ap.parse_args()
 

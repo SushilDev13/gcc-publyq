@@ -132,7 +132,7 @@ Real GCC records for **Ward 173 (Adyar, zone 13), January–November 2026**:
 | GCC posts and reporting lines (posts, not named people) | 761 / 892 |
 | Standard operating procedures | 56 |
 
-The source CSVs are in [`Complaints/`](Complaints) and [`Officials/`](Officials). Photo and video files are not stored here.
+The source CSVs are in [`data/complaints/`](data/complaints) and [`data/officials/`](data/officials). Photo and video files are not stored here.
 
 ## Security and privacy
 
@@ -150,7 +150,7 @@ The source CSVs are in [`Complaints/`](Complaints) and [`Officials/`](Officials)
 ## Run it yourself
 
 ```bash
-./scripts/dev-db.sh start                                  # local Postgres on port 5444
+./backend/scripts/dev-db.sh start                          # local Postgres on port 5444
 cp .env.example .env                                       # fill in the keys you have
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m backend.scripts.seed                   # load the Ward 173 records
@@ -160,7 +160,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 Open http://localhost:8173. Telegram sign-in only works on the domain set in BotFather (`/setdomain`), and voice needs
 a public `PUBLIC_BASE_URL` that Agora can reach, so full end-to-end testing happens on the deployed site.
 
-**Tests:** `.venv/bin/pytest`. 133 tests, including replays of every attack fixed so far; they never call paid APIs
+**Tests:** `.venv/bin/pytest`. 137 tests, including replays of every attack fixed so far; they never call paid APIs
 or send real messages.
 
 **Deploy:** pushing to `main` deploys to Vercel. Schema changes go to Neon with
@@ -189,10 +189,14 @@ backend/app/        brain and tools
   publyq.py         links into app.publyq.in
   mcp.py            MCP server
   main.py           web API and who may touch what
-backend/scripts/    seed data, apply schema, copy to Neon, link Telegram, evaluate LLMs
-backend/tests/      133 tests
+backend/db/         Postgres schema
+backend/scripts/    local Postgres, seed data, apply schema, copy to Neon, link Telegram,
+                    evaluate LLMs, fetch ward photos and X media
+backend/tests/      137 tests
+api/index.py        Vercel entry point
 web/                the app (one page, no build step)
-Complaints/, Officials/   Ward 173 source data
+data/complaints/    Ward 173 complaints, officer actions, media manifests
+data/officials/     GCC posts, reporting lines, procedures, ward map
 ```
 
 ## Known limits

@@ -5,12 +5,10 @@
 .claude
 .env*
 !.env.example
-Complaints
-Officials
+data
 backend/tests
 backend/scripts
 backend/db
-scripts
 *.log
 .pytest_cache
 __pycache__

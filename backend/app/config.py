@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     murf_locale: str = 'en-IN'
     public_base_url: str = ''           # https URL Agora's cloud uses to reach /v1/chat/completions
 
-    media_dir: str = 'Complaints/Images'
+    media_dir: str = 'data/complaints'
     media_base_url: str = ''
 
     ward_no: int = 173

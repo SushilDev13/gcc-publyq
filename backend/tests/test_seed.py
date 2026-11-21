@@ -12,11 +12,11 @@ def csv_count(rel: str) -> int:
 
 
 def test_row_counts_match_csvs():
-    assert db.fetchone('SELECT count(*) n FROM complaints')['n'] == csv_count('Complaints/Images/ward173_complaints.csv')
-    assert db.fetchone('SELECT count(*) n FROM complaint_events')['n'] == csv_count('Complaints/Images/ward173_events.csv')
-    assert db.fetchone('SELECT count(*) n FROM officials')['n'] == csv_count('Officials/gcc_officials.csv')
-    assert db.fetchone('SELECT count(*) n FROM sops')['n'] == csv_count('Officials/gcc_complaint_sop.csv')
-    assert db.fetchone('SELECT count(*) n FROM ward_map')['n'] == csv_count('Officials/gcc_ward_map.csv')
+    assert db.fetchone('SELECT count(*) n FROM complaints')['n'] == csv_count('data/complaints/ward173_complaints.csv')
+    assert db.fetchone('SELECT count(*) n FROM complaint_events')['n'] == csv_count('data/complaints/ward173_events.csv')
+    assert db.fetchone('SELECT count(*) n FROM officials')['n'] == csv_count('data/officials/gcc_officials.csv')
+    assert db.fetchone('SELECT count(*) n FROM sops')['n'] == csv_count('data/officials/gcc_complaint_sop.csv')
+    assert db.fetchone('SELECT count(*) n FROM ward_map')['n'] == csv_count('data/officials/gcc_ward_map.csv')
 
 
 def test_every_complaint_type_has_an_sop():

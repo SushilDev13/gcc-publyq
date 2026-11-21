@@ -224,7 +224,7 @@ CREATE INDEX IF NOT EXISTS conversations_device_idx ON conversations (device_id,
 ALTER TABLE turns ADD COLUMN IF NOT EXISTS cards jsonb;
 ALTER TABLE turns ADD COLUMN IF NOT EXISTS role_id text;
 
--- column meanings and provenance, from Officials/data_dictionary.csv
+-- column meanings and provenance, from data/officials/data_dictionary.csv
 CREATE TABLE IF NOT EXISTS data_dictionary (
   file     text NOT NULL,
   col      text NOT NULL,

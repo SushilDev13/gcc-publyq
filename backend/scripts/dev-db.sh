@@ -3,7 +3,7 @@
 # (5433), trust auth on localhost only. Never touches the Publyq DB on 5432.
 set -euo pipefail
 export LC_ALL=C LANG=C
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 PGBIN="${PGBIN:-/opt/homebrew/opt/postgresql@18/bin}"
 DATA=.local/pg
 PORT="${GCC_PG_PORT:-5444}"

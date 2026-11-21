@@ -22,7 +22,7 @@ Polite and resumable: one request at a time, a gap between requests, a pause
 after repeated failures, files already downloaded are skipped, and it stops
 at --until (default 06:00 IST, the end of the night window).
 
-  python fetch_ward_images.py --ward 173
+  python backend/scripts/fetch_ward_images.py --ward 173
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-PUBLYQ = HERE.parent.parent / "Publyq"
+PUBLYQ = HERE.parents[2] / "Publyq"
 sys.path.insert(0, str(PUBLYQ))
 
 import pandas as pd  # noqa: E402
@@ -112,7 +112,7 @@ def save_manifest(path: Path, rows: dict) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ward", default="173")
-    ap.add_argument("--out", default=str(HERE / "Images"))
+    ap.add_argument("--out", default=str(HERE.parents[1] / "data" / "complaints"))
     ap.add_argument("--gap", type=float, default=2.0, help="seconds between requests")
     ap.add_argument("--until", default="06:00", help="stop at this IST time (HH:MM)")
     args = ap.parse_args()
