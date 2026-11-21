@@ -5,7 +5,6 @@ __pycache__/
 .pytest_cache/
 .env
 .env.*
-!.env.example
 .local/
 .vercel/
 # 1.4 GB of photos/videos stay on disk / object storage, never in git
@@ -14,3 +13,4 @@ Complaints/Images/images/
 .agora/
 .vercel
 .env*
+!.env.example
