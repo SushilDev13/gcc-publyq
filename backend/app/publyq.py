@@ -74,3 +74,22 @@ def ward_map(ward: int = WARD) -> dict:
 
 def accountability(ward: int = WARD) -> dict:
     return {'url': _url('acc', range='all', ward=ward), 'label': f'Ward {ward} accountability in Publyq'}
+
+
+def open_link(complaint_ids: list[str] | None = None, issue: str | None = None, category: str | None = None,
+              status: str | None = None, safety: bool = False, overdue: bool = False,
+              view_name: str = 'complaints') -> dict:
+    """One link for Claude: an exact set of complaints, a filtered ward list, the map or accountability."""
+    if view_name == 'map':
+        link = ward_map()
+    elif view_name == 'accountability':
+        link = accountability()
+    elif complaint_ids:
+        ids = clean_ids(complaint_ids)
+        link = complaint(ids[0]) if len(ids) == 1 else complaints(ids)
+        if not link:
+            raise ValueError('no valid complaint IDs (format 2026-123ABC)')
+    else:
+        link = view(issue=issue, category=category, status=status, safety=safety, overdue=overdue,
+                    label='Open in Publyq')
+    return {**link, 'say': 'The Publyq link is on your screen.'}

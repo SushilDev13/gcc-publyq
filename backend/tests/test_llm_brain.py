@@ -95,3 +95,19 @@ def test_refusal_is_handled(claude):
     claude.script.append(NS(stop_reason='refusal', content=[]))
     r = say('something off-topic', 'test-llm-refuse')
     assert "can't help with that" in r['text']
+
+
+def test_claude_can_open_a_set_in_publyq(claude):
+    claude.script += [tool_msg('open_in_publyq', {'complaint_ids': ['2026-185OET', '2026-735GQS']}),
+                      text_msg('The Publyq link is on your screen.')]
+    r = say('open those two drain complaints in Publyq', 'test-llm-publyq')
+    card = r['cards'][0]
+    assert card['type'] == 'publyq' and card['count'] == 2 and 'ids=2026-185OET%2C2026-735GQS' in card['url']
+    assert any(t['name'] == 'open_in_publyq' for t in claude.seen[0]['tools'])
+
+
+def test_publyq_tool_rejects_bad_ids(claude):
+    claude.script += [tool_msg('open_in_publyq', {'complaint_ids': ['nope']}), text_msg('Which complaints?')]
+    say('open complaint nope in publyq', 'test-llm-publyq2')
+    err = claude.seen[1]['messages'][-1]['content'][0]
+    assert err['is_error'] and 'no valid complaint IDs' in err['content']

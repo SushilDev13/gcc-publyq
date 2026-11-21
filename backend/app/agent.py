@@ -18,7 +18,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 
-from . import db, dbquery, llm
+from . import db, dbquery, llm, publyq
 from . import roles as R
 from . import tools as T
 from .config import settings
@@ -34,6 +34,7 @@ How to answer:
 - For questions the specialised tools don't cover (comparisons, trends, "which street...", "how many...", anything creative), investigate with query_db: a few small targeted SELECT queries beat one huge one. Check a number before you say it.
 - Officials are posts (for example "Assistant Engineer, Ward 173"), not people. The records hold no officer names, phone numbers or emails.
 - Talk like a capable colleague: lead with the answer, then the one detail that matters most. The screen shows cards with the full detail, so never read out long lists.
+- Publyq (app.publyq.in) is the analytics view of these same records. Cards already carry "Open in Publyq" links; when the user wants to see, browse or drill into complaints there, call open_in_publyq (for a set you found with query_db, pass its complaint IDs). Never read a URL aloud; say the link is on screen.
 
 Actions:
 - You can propose: escalate, assign, note, follow_up, status_change (with to_status), close_request, help_request. GCC's portal has no write API, so these are recorded in GCC Publyq; requests that someone else must act on are posted to the Ward 173 Telegram group once the user confirms.
@@ -98,13 +99,22 @@ TOOLS: dict[str, tuple] = {
     'complaint_report': _tool(T.complaint_report, 'Completion report for one complaint.',
                               {'complaint_id': {'type': 'string'}}, ['complaint_id']),
     'ward_brief': _tool(T.ward_brief, 'Daily brief for the whole ward.', {}),
+    'open_in_publyq': _tool(publyq.open_link, 'Link to view or drill into complaints in Publyq (app.publyq.in): '
+                            'an exact set of complaint IDs (one ID opens its detail), or a Ward 173 list filtered by '
+                            'issue / category key / status / safety / overdue, or the ward map / accountability view.', {
+                                'complaint_ids': {'type': 'array', 'items': {'type': 'string'}, 'maxItems': 100},
+                                'issue': {'type': 'string', 'description': 'complaints.issue, e.g. "Debris removal"'},
+                                'category': {'type': 'string', 'description': 'complaints.issue_group_id, e.g. debris'},
+                                'status': {'type': 'string', 'enum': ['open', 'resolved', 'rejected']},
+                                'safety': {'type': 'boolean'}, 'overdue': {'type': 'boolean'},
+                                'view_name': {'type': 'string', 'enum': ['complaints', 'map', 'accountability']}}),
 }
 TOOL_DEFS = [{'name': n, **spec, 'eager_input_streaming': True} for n, (_, spec) in TOOLS.items()]
 CARD_TYPE = {'my_queue': 'queue', 'patterns': 'patterns', 'search_complaints': 'complaint_list',
              'get_complaint': 'complaint', 'query_db': 'table', 'find_officials': 'officials',
              'get_official': 'official', 'get_sop': 'sop', 'triage': 'triage', 'propose_action': 'action',
              'list_actions': 'actions', 'list_communications': 'communications', 'complaint_report': 'report',
-             'ward_brief': 'report'}
+             'ward_brief': 'report', 'open_in_publyq': 'publyq'}
 
 HELP = ("I can tell you what's urgent in Ward 173, open a complaint by ID, find who handles it, read its SOP, "
         "escalate it, set a follow-up, or write a report. Try: what's urgent?")

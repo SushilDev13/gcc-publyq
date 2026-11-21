@@ -28,6 +28,7 @@ SCHEMA_GUIDE = """Postgres tables (Ward 173, Adyar zone 13; GCC complaint record
 complaints(id, complaint_date timestamp IST, complainant, complaint_type, title, details_en, specific_location, locality,
   street, ward_no, zone_name, status, status_group['open'|'resolved'|'rejected'], viewed_by, holder_post_id, owner_post_id,
   sla_days, is_overdue bool, is_safety_risk bool, safety_reasons, urgency_label, urgency_score, issue, issue_group,
+  issue_group_id (Publyq category key: debris, garbage, drains, roads, streetlights, hoardings, encroachment, ...),
   department, whats_failed, whats_to_resolve, hotspot_tier['recurring'|'repeat'|...], repeat_cluster_id, repeat_count,
   recurred_after_fix bool, officer_message_count, last_activity_at, tweet_url, source_url, last_fetched_at, raw jsonb)
 complaint_events(complaint_id, seq, author, author_type['officer'|'qa'], role, at, message_en, forwarded_to)
