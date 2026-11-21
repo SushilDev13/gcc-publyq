@@ -155,3 +155,11 @@ the GCC portal.
 | M6 | Vercel + Neon deploy config | `vercel` preview deploy (needs your Neon URL) |
 | M7 | Agora ConvoAI baseline via official quickstart, then point its LLM at `/v1/chat/completions` and TTS at Murf | agent joins channel; one spoken turn end to end (needs Agora App Certificate, Murf key) |
 | M8 | Media to object storage | photos load on gcc.publyq.in |
+
+## 8. Publyq integration (deep links, not duplication)
+
+app.publyq.in already renders complaint lists, details, maps and accountability for the same GCC records,
+and stores its full view state in the URL hash. So the integration is a pure function from "what the user
+is looking at here" to "the exact Publyq URL" (`backend/app/publyq.py`): no shared database, no new API,
+no second copy of Publyq's UI. Repeat spots and role-scoped issues link their exact complaint IDs (Publyq has
+no notion of our role scopes); sets over Publyq's 100-ID cap fall back to the ward-wide filter and say so.

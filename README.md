@@ -79,6 +79,21 @@ Neon Postgres via the Vercel integration (`NEON_DATABASE_URL`), DNS CNAME at Spa
 | Outbound | Telegram group "Publyq Ward 173" via @Publyqbot; every message logged in `communications` |
 | Data | All CSVs in Postgres (local and Neon); media bytes stay in object storage, served from source URLs |
 
+### Publyq integration (app.publyq.in)
+
+GCC Publyq doesn't rebuild Publyq's analytics. It deep-links into them, because Publyq keeps its whole
+screen in the URL hash (`backend/app/publyq.py` mirrors its `state.js`). Guests can open every link.
+
+| In GCC Publyq | Opens in Publyq |
+|---|---|
+| Any list: queue, search, repeat spot, SQL result, duplicates | `#/complaints?range=all&ids=A,B,C` (exact set, max 100) |
+| One complaint | `…&ids=X&id=X` (detail panel open) |
+| Top issue / issue group | `…&ward=173&type=<issue>` / `…&category=<key>` |
+| Safety risks / overdue | `…&ward=173&status=open&safety=1` / `overdue=1` |
+| Ward map / accountability | `#/pulse?ward=173` / `#/acc?ward=173` |
+
+Claude can also call `open_in_publyq` for anything it finds, including sets from its own SQL.
+
 Re-deploy: `vercel deploy --prod`. Move data again: `python -m backend.scripts.migrate_db` (refuses a
 non-empty target unless `--replace`; verifies every table). Link a new Telegram group:
 `python -m backend.scripts.telegram_link --write`.
