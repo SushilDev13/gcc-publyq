@@ -25,11 +25,19 @@ def send(body_html: str, *, action_id: int | None = None, complaint_id: str | No
          session_id: str | None = None) -> dict:
     status, ref, err = 'not_configured', None, None
     if configured():
+        chat_id = settings.group_chat_id
         try:
-            r = httpx.post(f'https://api.telegram.org/bot{settings.bot_token}/sendMessage',
-                           json={'chat_id': settings.group_chat_id, 'text': body_html, 'parse_mode': 'HTML',
-                                 'disable_web_page_preview': True}, timeout=10)
-            data = r.json()
+            for _ in range(2):   # second try only if Telegram says the group became a supergroup
+                r = httpx.post(f'https://api.telegram.org/bot{settings.bot_token}/sendMessage',
+                               json={'chat_id': chat_id, 'text': body_html, 'parse_mode': 'HTML',
+                                     'disable_web_page_preview': True}, timeout=10)
+                data = r.json()
+                new_id = (data.get('parameters') or {}).get('migrate_to_chat_id')
+                if not data.get('ok') and new_id:
+                    log.warning('group migrated to supergroup; update GROUP_CHAT_ID to %s', new_id)
+                    chat_id = str(new_id)
+                    continue
+                break
             if data.get('ok'):
                 status, ref = 'sent', str(data['result']['message_id'])
             else:

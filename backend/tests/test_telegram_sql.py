@@ -64,3 +64,20 @@ def test_sql_timeout_and_row_cap():
         dbquery.run('select pg_sleep(4)')
     r = dbquery.run('select id from complaints')
     assert r['row_count'] == 50 and r['truncated']
+
+
+def test_supergroup_migration_is_followed(monkeypatch):
+    monkeypatch.setattr(settings, 'bot_token', 'x')
+    monkeypatch.setattr(settings, 'group_chat_id', '-111')
+    calls = []
+
+    def fake_post(url, json, timeout):
+        calls.append(json['chat_id'])
+        if json['chat_id'] == '-111':
+            return FakeResp({'ok': False, 'description': 'group chat was upgraded to a supergroup chat',
+                             'parameters': {'migrate_to_chat_id': -100111}})
+        return FakeResp({'ok': True, 'result': {'message_id': 5}})
+
+    monkeypatch.setattr(telegram.httpx, 'post', fake_post)
+    a = T.propose_action('help_request', '2026-185OET', note='need hands', session_id='test-tg4')
+    assert T.confirm_action(a['id'])['communication']['status'] == 'sent' and calls == ['-111', '-100111']
