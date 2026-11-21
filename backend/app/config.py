@@ -20,6 +20,14 @@ class Settings(BaseSettings):
 
     custom_llm_token: str = ''
 
+    # Agora ConvoAI + Murf (voice calls)
+    agora_app_id: str = ''
+    agora_app_certificate: str = ''
+    murf_api_key: str = ''
+    murf_voice_id: str = 'Matthew'      # Agora's documented Murf sample voice
+    murf_locale: str = 'en-US'
+    public_base_url: str = ''           # https URL Agora's cloud uses to reach /v1/chat/completions
+
     media_dir: str = 'Complaints/Images'
     media_base_url: str = ''
 

@@ -132,7 +132,8 @@ def test_llm_failure_falls_back(monkeypatch):
     assert r['done']['route'] == 'fallback' and "couldn't reach" in r['text']
 
 
-def test_openai_compatible_endpoint_streams():
+def test_openai_compatible_endpoint_streams(monkeypatch):
+    monkeypatch.setattr(settings, 'custom_llm_token', '')
     body = {'model': 'x', 'stream': True, 'messages': [{'role': 'system', 'content': 'ignored'},
                                                         {'role': 'user', 'content': "what's urgent"}]}
     with api.stream('POST', '/v1/chat/completions?session=test-convoai', json=body) as r:

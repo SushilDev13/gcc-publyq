@@ -170,3 +170,16 @@ main { flex: 1; width: 100%; max-width: 820px; margin: 0 auto; padding: 16px 16p
   .role-pill { max-width: 58vw; }
   .top { padding: 10px 12px; }
 }
+
+/* ── Agora voice call ───────────────────────────────────────────────── */
+.call { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--brand-deep); color: var(--brand-hi); display: grid; place-items: center; flex: none; }
+.call:hover { background: var(--brand-tint); }
+.call[aria-disabled="true"] { opacity: .45; border-color: var(--line-2); color: var(--fg-faint); }
+.callbar { max-width: 820px; margin: 0 auto 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--brand-tint); border: 1px solid var(--brand-deep); border-radius: 999px; padding: 6px 8px 6px 14px; font-size: 13px; }
+.callbar .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--pos); animation: pulse-g 1.4s infinite; }
+.callbar .sub { color: var(--fg-muted); font-size: 12px; margin-right: auto; }
+.callbar .end { background: var(--crit); color: #fff; border-radius: 999px; padding: 6px 14px; font-weight: 600; font-size: 12.5px; }
+body.in-call .mic, body.in-call .call { display: none; }
+@keyframes pulse-g { 0% { box-shadow: 0 0 0 0 rgba(63,185,80,.6); } 100% { box-shadow: 0 0 0 10px rgba(63,185,80,0); } }
+@media (prefers-reduced-motion: reduce) { .callbar .dot { animation: none; } }

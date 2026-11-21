@@ -18,6 +18,8 @@
   let convId = store.get('conv') || null;
   let roleId = store.get('role') || null;
   let roles = [];
+  const seenTurns = new Set();   // turn IDs already on screen (streamed or loaded)
+  let voiceStatus = { ready: false, missing: [] };
 
   // ── helpers ────────────────────────────────────────────────────────────
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -226,6 +228,8 @@
 
   // ── conversations (server-side history) ────────────────────────────────
   function newConversation() {
+    if (call) endCall();
+    seenTurns.clear();
     convId = 'c-' + uid(); store.set('conv', convId);
     stopSpeaking(); stopListening(); queue.length = 0; renderQueue();
     showHello();
@@ -238,7 +242,9 @@
     convId = id; store.set('conv', id);
     if (c.role_id && roleOf(c.role_id)) setRole(c.role_id);
     feed.innerHTML = '';
+    seenTurns.clear();
     for (const t of c.turns) {
+      seenTurns.add(t.id);
       const el = turnEl(t.text);
       el.classList.add('past');
       $('.say', el).textContent = t.reply || '';
@@ -274,7 +280,7 @@
   if (synth) { pickVoice(); synth.onvoiceschanged = pickVoice; }
   const stopSpeaking = () => { if (synth) synth.cancel(); mic.classList.remove('speaking'); };
   function speak(text, then) {
-    if (!synth || !$('#speak').checked || !text) { then && then(); return; }
+    if (!synth || !$('#speak').checked || !text || call) { then && then(); return; }
     synth.cancel();
     const u = new SpeechSynthesisUtterance(text.replace(/(\d{4})-(\d{3})([A-Z]{3})/g, '$1 $2 $3').replace(/#(\d+)/g, 'number $1'));
     if (voice) u.voice = voice;
@@ -362,6 +368,7 @@
             }
             const n = card(data); if (n) cardsEl.append(n);
           } else if (ev === 'done') {
+            if (data.turn_id) seenTurns.add(data.turn_id);
             metaEl.textContent = `${data.route}${data.intent ? ' · ' + data.intent : ''} · server ${data.latency_ms ?? '?'} ms · total ${Math.round(performance.now() - t0)} ms`;
             if (data.role && data.role !== roleId) setRole(data.role);
           }
@@ -376,10 +383,92 @@
     scroll();
     const next = () => {
       if (queue.length) { const q = queue.shift(); renderQueue(); run(q); }
-      else if ($('#handsfree').checked) startListening();
+      else if ($('#handsfree').checked && !call) startListening();
     };
     speak(said, next); // calls next() itself when speech is off or finished
   }
+
+  // ── Agora voice call (primary voice path) ──────────────────────────────
+  // Adapted from Agora's quickstart lifecycle: token -> invite agent -> join RTC -> publish mic,
+  // play the agent's audio. The agent's LLM is our brain, so every spoken turn is saved under this
+  // conversation; we poll it to show the same cards the chat shows.
+  const RTC_SDK = 'https://cdn.jsdelivr.net/npm/agora-rtc-sdk-ng@4.24.10/AgoraRTC_N-production.min.js';
+  let call = null;
+  const loadScript = (src) => new Promise((ok, fail) => {
+    if (window.AgoraRTC) return ok();
+    const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => fail(new Error('Could not load Agora SDK')); document.head.append(s);
+  });
+  const callState = (txt) => { $('#callState').textContent = txt; };
+  const api = async (path, opts) => {
+    const r = await fetch(`${API}${path}`, opts);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || d.error || `HTTP ${r.status}`);
+    return d;
+  };
+
+  async function startCall() {
+    if (call) return;
+    if (!voiceStatus.ready) { status(`Voice calls need: ${voiceStatus.missing.join(', ')}`, true); return; }
+    stopListening(); stopSpeaking();
+    if (!convId) { convId = 'c-' + uid(); store.set('conv', convId); }
+    $('.hello', feed)?.remove(); $('.pick', feed)?.remove();
+    call = { agentId: null, client: null, mic: null, poll: null };
+    document.body.classList.add('in-call'); $('#callbar').hidden = false; callState('Connecting…');
+    try {
+      await loadScript(RTC_SDK);
+      const cfg = await api(`/api/voice/config?session_id=${encodeURIComponent(convId)}`);
+      const started = await api('/api/voice/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: cfg.channel, agent_uid: cfg.agent_uid, user_uid: cfg.uid, session_id: convId, role_id: roleId, device_id: DEVICE }) });
+      call.agentId = started.agent_id;
+      const client = window.AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+      call.client = client;
+      client.on('user-published', async (user, mediaType) => {
+        await client.subscribe(user, mediaType);
+        if (mediaType === 'audio') { user.audioTrack.play(); callState('Live — speak naturally'); }
+      });
+      client.on('user-left', () => callState('Agent left the call'));
+      await client.join(cfg.app_id, cfg.channel, cfg.token, cfg.uid);
+      call.mic = await window.AgoraRTC.createMicrophoneAudioTrack({ AEC: true, ANS: true, AGC: true });
+      await client.publish([call.mic]);
+      callState('Agent joining…');
+      call.poll = setInterval(pollTurns, 1500);
+      feed.append(h(`<p class="divider">Voice call started · ${esc(started.greeting)}</p>`)); scroll(true);
+    } catch (err) {
+      feed.append(h(`<p class="divider" style="color:var(--crit)">Call failed: ${esc(err.message)}. Browser voice and typing still work.</p>`));
+      await endCall();
+    }
+  }
+
+  async function endCall() {
+    const c = call; if (!c) return;
+    call = null;
+    clearInterval(c.poll);
+    document.body.classList.remove('in-call'); $('#callbar').hidden = true;
+    try { if (c.mic) { c.mic.stop(); c.mic.close(); } } catch (_) {}
+    try { if (c.client) await c.client.leave(); } catch (_) {}
+    if (c.agentId) api('/api/voice/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: c.agentId }) }).catch(() => {});
+    feed.append(h('<p class="divider">Call ended · the transcript and actions are saved in History</p>')); scroll(true);
+  }
+
+  async function pollTurns() {
+    if (!call || !convId) return;
+    try {
+      const c = await api(`/api/conversations/${encodeURIComponent(convId)}?device_id=${encodeURIComponent(DEVICE)}`);
+      for (const t of c.turns) {
+        if (seenTurns.has(t.id)) continue;
+        seenTurns.add(t.id);
+        const el = turnEl(t.text);
+        el.classList.add('voice');
+        $('.say', el).textContent = t.reply || '';
+        for (const cd of t.cards || []) { const n = card(cd); if (n) $('.cards', el).append(n); }
+        $('.meta', el).textContent = `voice · ${t.route}${t.intent ? ' · ' + t.intent : ''} · server ${t.latency_ms ?? '?'} ms`;
+        feed.append(el);
+        if (t.role_id && t.role_id !== roleId) setRole(t.role_id);
+        scroll();
+      }
+    } catch (_) { /* transient; next tick retries */ }
+  }
+  window.addEventListener('pagehide', () => { if (call?.agentId) navigator.sendBeacon?.(`${API}/api/voice/stop`, new Blob([JSON.stringify({ agent_id: call.agentId })], { type: 'application/json' })); });
 
   // ── events ─────────────────────────────────────────────────────────────
   $('#composer').addEventListener('submit', (e) => { e.preventDefault(); send(input.value); });
@@ -396,7 +485,9 @@
       return openHistory();
     }
     const act = t.dataset.act;
-    if (act === 'new') newConversation();
+    if (act === 'call') startCall();
+    else if (act === 'endcall') endCall();
+    else if (act === 'new') newConversation();
     else if (act === 'history') openHistory();
     else if (act === 'close') closeHistory();
     else if (act === 'roles') showRolePicker();
@@ -409,8 +500,12 @@
   function status(text, bad) { statusEl.textContent = text; statusEl.className = 'status' + (bad ? ' bad' : ''); }
   (async () => {
     try {
-      const [hRes, rRes] = await Promise.all([fetch(`${API}/api/health`), fetch(`${API}/api/roles`)]);
+      const [hRes, rRes, vRes] = await Promise.all([fetch(`${API}/api/health`), fetch(`${API}/api/roles`), fetch(`${API}/api/voice/status`)]);
       const hd = await hRes.json();
+      voiceStatus = await vRes.json().catch(() => voiceStatus);
+      const cb = $('#callBtn');
+      cb.setAttribute('aria-disabled', String(!voiceStatus.ready));
+      cb.title = voiceStatus.ready ? 'Voice call (Agora ConvoAI + Murf Falcon)' : `Voice call not configured: ${voiceStatus.missing.join(', ')}`;
       roles = (await rRes.json()).roles;
       status(hd.ok ? `${hd.complaints} records · ${hd.llm ? 'AI on' : 'fast mode'}` : 'database down', !hd.ok);
     } catch (_) { status('offline', true); }

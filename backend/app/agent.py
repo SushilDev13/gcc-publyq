@@ -99,18 +99,20 @@ def load_ctx(session_id: str) -> tuple[dict, list[dict]]:
 
 
 def save_turn(session_id: str, channel: str, text: str, route_: str, intent: str | None, tools: list[str],
-              reply: str, ctx: dict, ms: int, cards: list[dict] | None = None, device_id: str | None = None) -> None:
+              reply: str, ctx: dict, ms: int, cards: list[dict] | None = None,
+              device_id: str | None = None) -> int | None:
     try:
         role = ctx.get('role')
         db.execute("""INSERT INTO conversations (id, device_id, role_id, title) VALUES (%s, %s, %s, %s)
                       ON CONFLICT (id) DO UPDATE SET updated_at = now(), role_id = EXCLUDED.role_id""",
                    (session_id, device_id or channel, role, text[:80]))
-        db.execute('INSERT INTO turns (session_id, channel, text, route, intent, tools, reply, ctx, latency_ms, '
-                   'cards, role_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        return db.execute('INSERT INTO turns (session_id, channel, text, route, intent, tools, reply, ctx, latency_ms, '
+                   'cards, role_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
                    (session_id, channel, text, route_, intent, json.dumps(tools), reply, json.dumps(ctx), ms,
-                    json.dumps(cards or [], default=str), role))
+                    json.dumps(cards or [], default=str), role))['id']
     except Exception:  # audit log must never break a turn
         log.exception('failed to save turn')
+        return None
 
 
 def _next_ctx(prev: dict, focus: str | None, ids: list[str] | None, cards: list[dict]) -> dict:
@@ -163,9 +165,9 @@ async def run_turn(text: str, session_id: str, channel: str = 'web', role_id: st
         if reply.role:
             new_ctx['role'] = reply.role
         ms = int((time.perf_counter() - t0) * 1000)
-        await asyncio.to_thread(save_turn, session_id, channel, text, 'fast', reply.intent, reply.tools, reply.say,
-                                new_ctx, ms, reply.cards, device_id)
-        yield 'done', {'route': 'fast', 'intent': reply.intent, 'latency_ms': ms, 'focus': new_ctx.get('focus'),
+        tid = await asyncio.to_thread(save_turn, session_id, channel, text, 'fast', reply.intent, reply.tools,
+                                      reply.say, new_ctx, ms, reply.cards, device_id)
+        yield 'done', {'turn_id': tid, 'route': 'fast', 'intent': reply.intent, 'latency_ms': ms, 'focus': new_ctx.get('focus'),
                        'role': new_ctx.get('role')}
         return
 
@@ -174,9 +176,9 @@ async def run_turn(text: str, session_id: str, channel: str = 'web', role_id: st
         yield 'route', {'route': 'fallback', 'intent': 'no_llm'}
         yield 'delta', {'text': HELP}
         ms = int((time.perf_counter() - t0) * 1000)
-        await asyncio.to_thread(save_turn, session_id, channel, text, 'fallback', 'no_llm', [], HELP, ctx, ms,
-                                [], device_id)
-        yield 'done', {'route': 'fallback', 'latency_ms': ms, 'role': ctx.get('role')}
+        tid = await asyncio.to_thread(save_turn, session_id, channel, text, 'fallback', 'no_llm', [], HELP, ctx,
+                                      ms, [], device_id)
+        yield 'done', {'turn_id': tid, 'route': 'fallback', 'latency_ms': ms, 'role': ctx.get('role')}
         return
 
     yield 'route', {'route': 'llm'}
@@ -240,7 +242,7 @@ async def run_turn(text: str, session_id: str, channel: str = 'web', role_id: st
 
     new_ctx = _next_ctx(ctx, focus, ids, cards)
     ms = int((time.perf_counter() - t0) * 1000)
-    await asyncio.to_thread(save_turn, session_id, channel, text, route_, None, used, said, new_ctx, ms, cards,
-                            device_id)
-    yield 'done', {'route': route_, 'latency_ms': ms, 'tools': used, 'focus': new_ctx.get('focus'),
+    tid = await asyncio.to_thread(save_turn, session_id, channel, text, route_, None, used, said, new_ctx, ms,
+                                  cards, device_id)
+    yield 'done', {'turn_id': tid, 'route': route_, 'latency_ms': ms, 'tools': used, 'focus': new_ctx.get('focus'),
                    'role': new_ctx.get('role')}

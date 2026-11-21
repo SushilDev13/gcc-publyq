@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from . import db
 from . import roles as R
+from . import voice
 from .agent import run_turn
 from . import tools as T
 from .config import settings
@@ -156,6 +157,58 @@ def delete_conversation(cid: str, device_id: str = Query(min_length=8, max_lengt
     _own_conversation(cid, device_id)
     db.execute('UPDATE conversations SET deleted_at = now() WHERE id = %s', (cid,))
     return {'ok': True, 'note': 'Hidden from history. Actions it created stay in the action ledger.'}
+
+
+# ── voice calls (Agora ConvoAI + Murf) ───────────────────────────────────
+class VoiceStartIn(BaseModel):
+    channel: str = Field(min_length=1, max_length=64)
+    agent_uid: int = Field(gt=0)
+    user_uid: int = Field(gt=0)
+    session_id: str = Field(min_length=1, max_length=80)
+    role_id: str | None = Field(None, max_length=20)
+    device_id: str = Field(min_length=8, max_length=80)
+
+
+class VoiceStopIn(BaseModel):
+    agent_id: str = Field(min_length=1, max_length=128)
+
+
+@app.get('/api/voice/status')
+def voice_status():
+    return voice.configured()
+
+
+@app.get('/api/voice/config')
+def voice_config(session_id: str = Query(min_length=1, max_length=80)):
+    try:
+        return voice.connection_config(session_id)
+    except voice.VoiceError as e:
+        raise HTTPException(503, str(e))
+
+
+@app.post('/api/voice/start')
+async def voice_start(body: VoiceStartIn):
+    # register the conversation up front so the call shows in history even before the first turn
+    db.execute("""INSERT INTO conversations (id, device_id, role_id, title) VALUES (%s,%s,%s,%s)
+                  ON CONFLICT (id) DO UPDATE SET updated_at = now()""",
+               (body.session_id, body.device_id, body.role_id, 'Voice call'))
+    try:
+        return await voice.start(body.channel, body.agent_uid, body.user_uid, body.session_id, body.role_id)
+    except voice.VoiceError as e:
+        raise HTTPException(503, str(e))
+    except Exception as e:
+        log.exception('voice start failed')
+        raise HTTPException(502, f'Agora agent failed to start: {type(e).__name__}')
+
+
+@app.post('/api/voice/stop')
+async def voice_stop(body: VoiceStopIn):
+    try:
+        await voice.stop(body.agent_id)
+    except Exception as e:
+        log.warning('voice stop failed: %s', e)
+        return {'ok': False, 'error': type(e).__name__}
+    return {'ok': True}
 
 
 # ── reports ───────────────────────────────────────────────────────────────
