@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     cron_secret: str = ''
 
     custom_llm_token: str = ''
+    mcp_token: str = ''                 # bearer token for /mcp (unset = MCP disabled)
 
     # Agora ConvoAI + Murf (voice calls)
     agora_app_id: str = ''

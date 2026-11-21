@@ -6,12 +6,13 @@ import uuid
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import db
 from . import roles as R
 from . import brief, voice
+from . import mcp as mcp_server
 from .agent import run_turn
 from . import tools as T
 from .config import settings
@@ -220,6 +221,34 @@ async def voice_stop(body: VoiceStopIn):
         log.warning('voice stop failed: %s', e)
         return {'ok': False, 'error': type(e).__name__}
     return {'ok': True}
+
+
+# ── MCP (Streamable HTTP, stateless, JSON responses) ─────────────────────
+@app.post('/mcp')
+async def mcp_endpoint(request: Request):
+    if not settings.mcp_token:
+        raise HTTPException(503, 'MCP is not enabled on this server')
+    if request.headers.get('authorization', '') != f'Bearer {settings.mcp_token}':
+        return JSONResponse({'error': 'unauthorized'}, status_code=401,
+                            headers={'WWW-Authenticate': 'Bearer realm="gcc-publyq-mcp"'})
+    try:
+        msg = await request.json()
+    except ValueError:
+        return JSONResponse(mcp_server._err(None, -32700, 'Parse error'), status_code=400)
+    if isinstance(msg, list):
+        return JSONResponse(mcp_server._err(None, -32600, 'Batching is not supported'), status_code=400)
+    import asyncio
+    out = await asyncio.to_thread(mcp_server.handle, msg)
+    if out is None:                                   # notification or response: accepted, no body
+        return Response(status_code=202)
+    return JSONResponse(out)
+
+
+@app.get('/mcp')
+@app.delete('/mcp')
+def mcp_no_stream():
+    # stateless server: no server-initiated SSE stream and no sessions to terminate
+    return Response(status_code=405, headers={'Allow': 'POST'})
 
 
 # ── morning brief (Vercel Cron: GET with Authorization: Bearer $CRON_SECRET) ──
