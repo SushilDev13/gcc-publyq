@@ -14,6 +14,16 @@ from . import tools as T
 
 CONFIRM = re.compile(r"^\s*(yes|yeah|yep|confirm(ed)?|go ahead|do it|proceed|ok(ay)?|sure|approve[d]?)\b[\s.!]*"
                      r"(please|it|that|go ahead|confirm)?[\s.!]*$", re.I)
+# Spoken Tamil confirmations / cancellations as a Tamil call transcribes them (whole utterance only).
+TA_CONFIRM = {'சரி', 'ஆமாம்', 'ஆம்', 'உறுதி', 'உறுதி செய்', 'உறுதி செய்யுங்கள்', 'உறுதிப்படுத்து',
+              'உறுதிப்படுத்துங்கள்', 'கன்ஃபர்ம்', 'ஓகே', 'செய்யுங்கள்', 'சரி செய்யுங்கள்'}
+TA_CANCEL = {'வேண்டாம்', 'ரத்து', 'ரத்து செய்', 'ரத்து செய்யுங்கள்', 'கேன்சல்', 'நிறுத்து'}
+
+
+def _ta(raw: str) -> str:
+    return re.sub(r'[\s.!,?।]+', ' ', raw).strip()
+
+
 CANCEL = re.compile(r"^\s*(no|nope|cancel( it| that)?|stop|don'?t|abort|never ?mind)\b[\s.!]*$", re.I)
 ORDINALS = {'first': 0, '1st': 0, 'one': 0, 'second': 1, '2nd': 1, 'two': 1, 'third': 2, '3rd': 2, 'three': 2,
             'fourth': 3, '4th': 3, 'four': 3, 'fifth': 4, '5th': 4, 'five': 4, 'last': -1}
@@ -100,6 +110,10 @@ def control(text: str, ctx: dict, session_id: str | None) -> tuple[Reply | None,
                 rest, new_role)
     body = rest if new_role else text
     raw = body.strip()
+    if _ta(raw) in TA_CONFIRM:
+        body, raw = 'confirm', 'confirm'
+    elif _ta(raw) in TA_CANCEL:
+        body, raw = 'cancel', 'cancel'
     if CONFIRM_ID.match(raw) or CONFIRM.match(raw) or CANCEL.match(raw):
         reply = _route(body, {**ctx, 'role': role_id}, session_id)
         if reply and new_role:

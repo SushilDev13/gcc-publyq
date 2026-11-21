@@ -169,6 +169,15 @@ def _compact(result: dict) -> str:
     return json.dumps(r, default=str)[:8000]
 
 
+LANGUAGE = {
+    'ta': ('Reply in Tamil (Tamil script), the natural spoken Tamil of a Chennai Corporation office. Keep complaint '
+           'IDs (2026-185OET), post IDs (AE-D173) and numbers exactly as written. Prefer the Tamil issue names stored '
+           "in the records (complaints.raw->>'issue_ta'); everyday English office words like complaint or escalate are "
+           'fine where Tamil speakers use them.'),
+    'en': 'Reply in English.',
+}
+
+
 def _system(ctx: dict, channel: str) -> list[dict]:
     role = R.BY_ID.get(ctx.get('role') or '', R.BY_ID[R.WARD])
     scope = R.scope(role['id'])
@@ -176,7 +185,8 @@ def _system(ctx: dict, channel: str) -> list[dict]:
            f"({role['kind']} role; scope: {', '.join(scope) if scope else 'whole ward'}). Answer from their point of "
            f"view: their queue, their escalation chain, their recurring problems.\n"
            f"Complaint in focus: {ctx.get('focus') or 'none'}. Last listed: "
-           f"{', '.join((ctx.get('list') or [])[:5]) or 'none'}.\n{STYLE.get(channel, STYLE['web'])}")
+           f"{', '.join((ctx.get('list') or [])[:5]) or 'none'}.\n{STYLE.get(channel, STYLE['web'])}\n"
+           f"{LANGUAGE.get(ctx.get('lang') or 'en', LANGUAGE['en'])}")
     return [{'type': 'text', 'text': STABLE_PROMPT, 'cache_control': {'type': 'ephemeral'}},
             {'type': 'text', 'text': dyn}]
 
@@ -190,11 +200,13 @@ def _reply_events(reply: Reply, route_label: str):
 
 # ── the turn ──────────────────────────────────────────────────────────────
 async def run_turn(text: str, session_id: str, channel: str = 'web', role_id: str | None = None,
-                   device_id: str | None = None) -> AsyncIterator[tuple[str, dict]]:
+                   device_id: str | None = None, lang: str | None = None) -> AsyncIterator[tuple[str, dict]]:
     t0 = time.perf_counter()
     ctx, history = await asyncio.to_thread(load_ctx, session_id)
     if role_id in R.BY_ID:  # explicit choice in the UI wins over the remembered one
         ctx['role'] = role_id
+    if lang in LANGUAGE:
+        ctx['lang'] = lang
 
     try:
         reply, body, new_role = await asyncio.to_thread(control, text, ctx, session_id)

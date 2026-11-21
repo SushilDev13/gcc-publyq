@@ -249,6 +249,7 @@ class TurnIn(BaseModel):
     session_id: str = Field(min_length=1, max_length=80)
     role_id: str | None = Field(None, max_length=20)
     device_id: str | None = Field(None, max_length=80)
+    lang: str | None = Field(None, max_length=4)
 
 
 def _sse(event: str, data: dict) -> str:
@@ -259,7 +260,8 @@ def _sse(event: str, data: dict) -> str:
 async def agent_turn(body: TurnIn):
     async def gen():
         try:
-            async for ev, data in run_turn(body.text, body.session_id, 'web', body.role_id, body.device_id):
+            async for ev, data in run_turn(body.text, body.session_id, 'web', body.role_id, body.device_id,
+                                           body.lang):
                 yield _sse(ev, data)
         except Exception:
             log.exception('turn failed')
@@ -282,7 +284,8 @@ def _last_user_text(messages: list[dict]) -> str:
 
 @app.post('/v1/chat/completions')
 @app.post('/chat/completions')
-async def chat_completions(request: Request, session: str | None = None, role: str | None = None):
+async def chat_completions(request: Request, session: str | None = None, role: str | None = None,
+                           lang: str | None = None):
     if settings.custom_llm_token:
         if request.headers.get('authorization', '') != f'Bearer {settings.custom_llm_token}':
             raise HTTPException(401, 'bad token')
@@ -301,7 +304,7 @@ async def chat_completions(request: Request, session: str | None = None, role: s
         yield chunk({'role': 'assistant'})
         try:
             if text:
-                async for ev, data in run_turn(text, sid, 'convoai', role):
+                async for ev, data in run_turn(text, sid, 'convoai', role, lang=lang):
                     if ev == 'delta':
                         yield chunk({'content': data['text']})
         except Exception:
@@ -313,7 +316,7 @@ async def chat_completions(request: Request, session: str | None = None, role: s
     if body.get('stream', True):
         return StreamingResponse(gen(), media_type='text/event-stream', headers={'Cache-Control': 'no-cache'})
     out = ''
-    async for ev, data in run_turn(text, sid, 'convoai', role):
+    async for ev, data in run_turn(text, sid, 'convoai', role, lang=lang):
         if ev == 'delta':
             out += data['text']
     return {'id': cid, 'object': 'chat.completion', 'created': int(time.time()), 'model': model,

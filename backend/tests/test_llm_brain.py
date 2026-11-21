@@ -111,3 +111,23 @@ def test_publyq_tool_rejects_bad_ids(claude):
     say('open complaint nope in publyq', 'test-llm-publyq2')
     err = claude.seen[1]['messages'][-1]['content'][0]
     assert err['is_error'] and 'no valid complaint IDs' in err['content']
+
+
+def test_tamil_mode_reaches_claude(claude):
+    claude.script += [text_msg('உங்களிடம் நிலுவையில் புகார்கள் இல்லை.')]
+    from backend.tests.test_agent_e2e import api
+    body = {'text': 'இன்று என்ன வேலை?', 'session_id': 'test-llm-ta', 'role_id': 'AEL-D173',
+            'device_id': 'test-device-1', 'lang': 'ta'}
+    with api.stream('POST', '/api/agent/turn', json=body) as r:
+        list(r.iter_lines())
+    assert 'Reply in Tamil' in claude.seen[0]['system'][1]['text']
+
+
+def test_tamil_confirm_is_deterministic(claude):
+    from backend.app import tools as T
+    from backend.tests.test_agent_e2e import api
+    a = T.propose_action('note', '2026-185OET', note='site visit', session_id='test-ta-confirm')
+    out = say('சரி', 'test-ta-confirm')                       # no Claude script: must not reach Claude
+    assert out['route'] == 'control' and out['cards'][0]['id'] == a['id'] and out['cards'][0]['status'] == 'confirmed'
+    b = T.propose_action('note', '2026-185OET', note='x', session_id='test-ta-confirm')
+    assert say('வேண்டாம்.', 'test-ta-confirm')['cards'][0]['status'] == 'cancelled'
