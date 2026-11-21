@@ -6,7 +6,8 @@
 4. A random session token goes to the browser in an HttpOnly, Secure, SameSite=Lax cookie; the database keeps
    only its SHA-256. Membership is re-checked once a day, so removing someone from the group signs them out.
 
-Admin: ADMIN_TELEGRAM_IDS, or the group's owner (creator). Everyone else picks a GCC post themselves.
+Everyone picks their own GCC post. Admin is a flag on the account, not a post: ADMIN_TELEGRAM_IDS, or the group's
+owner (creator).
 """
 from __future__ import annotations
 
@@ -122,8 +123,6 @@ def sign_in(widget: dict) -> tuple[str, dict]:
                          ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, username = EXCLUDED.username,
                            photo_url = EXCLUDED.photo_url, is_admin = EXCLUDED.is_admin, last_seen_at = now()
                          RETURNING *""", (uid, name[:120], p.get('username'), p.get('photo_url'), is_admin))
-    if user['role_id'] == R.ADMIN and not is_admin:          # lost admin since last time
-        user = db.execute('UPDATE users SET role_id = NULL WHERE id = %s RETURNING *', (uid,))
     token = secrets.token_urlsafe(32)
     db.execute("""INSERT INTO user_sessions (token_hash, user_id, expires_at)
                   VALUES (%s, %s, now() + make_interval(days => %s))""", (_hash(token), uid, SESSION_DAYS))
@@ -161,11 +160,10 @@ def sign_out(token: str | None) -> None:
 def set_role(user: dict, role_id: str | None) -> dict:
     if role_id is not None and role_id not in R.BY_ID:
         raise AuthError('Unknown post', 400)
-    if role_id == R.ADMIN and not user['is_admin']:
-        raise AuthError('Admin is not available to this account', 403)
     return db.execute('UPDATE users SET role_id = %s WHERE id = %s RETURNING *', (role_id, user['id']))
 
 
 def public(user: dict) -> dict:
+    role = user['role_id'] if user['role_id'] in R.BY_ID else None    # a post that no longer exists: pick again
     return {'id': user['id'], 'name': user['name'], 'username': user['username'], 'photo_url': user['photo_url'],
-            'role_id': user['role_id'], 'is_admin': user['is_admin']}
+            'role_id': role, 'is_admin': user['is_admin']}

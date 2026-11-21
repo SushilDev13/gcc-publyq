@@ -279,8 +279,8 @@ ALTER TABLE communications ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT '
 CREATE INDEX IF NOT EXISTS communications_kind_idx ON communications (kind, created_at);
 
 -- ── people (Telegram sign-in) ─────────────────────────────────────────────
--- A user is a Telegram account that is in the Ward 173 group. They pick their own post (role_id); 'ADMIN' is
--- only ever offered to ADMIN_TELEGRAM_IDS or the group's owner. Sessions keep only a SHA-256 of the cookie token.
+-- A user is a Telegram account that is in the Ward 173 group. They pick their own post (role_id); is_admin is
+-- an account flag (ADMIN_TELEGRAM_IDS or the group's owner), not a post. Sessions keep only a SHA-256 of the cookie token.
 CREATE TABLE IF NOT EXISTS users (
   id            bigint PRIMARY KEY,                 -- Telegram user id
   name          text NOT NULL,

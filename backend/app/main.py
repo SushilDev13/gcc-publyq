@@ -4,7 +4,7 @@ Who may touch what:
   - People sign in with Telegram and must be in the Ward 173 group (auth.py); the session is an HttpOnly cookie.
   - A conversation belongs to the person who started it. Every endpoint that reads, continues, calls into or
     decides actions in a conversation checks that owner; a stranger gets the same 404 as a missing one.
-  - Chats, calls, the action ledger and reports need a signed-in person; the Admin post needs an admin.
+  - Chats, calls, the action ledger and reports need a signed-in person.
   - The ConvoAI brain, MCP and the cron job each need their own bearer secret; unset means the endpoint is off.
   - Complaint records, posts and SOPs are GCC's own published data and stay readable.
 """
@@ -56,13 +56,6 @@ def _user(request: Request) -> dict:
 
 def _owner(request: Request) -> str:
     return auth.owner_key(_user(request)['id'])
-
-
-def _role(user: dict, role_id: str | None) -> str | None:
-    """A post the person may speak as: any GCC post, Admin only for admins."""
-    if role_id == R.ADMIN and not user['is_admin']:
-        raise HTTPException(403, 'Admin is not available to this account')
-    return role_id
 
 
 def _claim(session_id: str, owner: str) -> None:
@@ -235,9 +228,8 @@ def transition(aid: int, op: str, request: Request):
 
 # ── roles + chat history ──────────────────────────────────────────────────
 @app.get('/api/roles')
-def roles(request: Request):
-    u = auth.current_user(request.cookies.get(auth.COOKIE))
-    return {'roles': [r for r in R.list_roles() if r['id'] != R.ADMIN or (u and u['is_admin'])]}
+def roles():
+    return {'roles': R.list_roles()}
 
 
 @app.get('/api/conversations')
@@ -316,7 +308,7 @@ def voice_config(request: Request, session_id: str = Query(min_length=1, max_len
 @app.post('/api/voice/start')
 async def voice_start(body: VoiceStartIn, request: Request):
     user = _user(request)
-    dev, role_id = auth.owner_key(user['id']), _role(user, body.role_id)
+    dev, role_id = auth.owner_key(user['id']), body.role_id
     _claim(body.session_id, dev)
     # register the conversation up front so the call shows in history even before the first turn
     db.execute("""INSERT INTO conversations (id, device_id, role_id, title) VALUES (%s,%s,%s,%s)
@@ -432,7 +424,7 @@ def _sse(event: str, data: dict) -> str:
 @app.post('/api/agent/turn')
 async def agent_turn(body: TurnIn, request: Request):
     user = _user(request)
-    dev, role_id = auth.owner_key(user['id']), _role(user, body.role_id or user['role_id'])
+    dev, role_id = auth.owner_key(user['id']), body.role_id or user['role_id']
     _claim(body.session_id, dev)          # history and pending actions are read by session: owner only
 
     async def gen():

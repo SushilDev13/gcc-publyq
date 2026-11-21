@@ -361,7 +361,7 @@
   }
   const closeHistory = () => { $('#historySheet').hidden = true; };
   const renderAccount = () => {
-    $('#account').innerHTML = me ? `<span>${esc(me.name)}${me.username ? ` · @${esc(me.username)}` : ''}</span>
+    $('#account').innerHTML = me ? `<span>${esc(me.name)}${me.username ? ` · @${esc(me.username)}` : ''}${me.is_admin ? ' <b class="badge">Admin</b>' : ''}</span>
       <button class="signout" data-act="signout">${esc(t().signOut)}</button>` : '';
   };
 
@@ -539,7 +539,7 @@
     if (t.dataset.say) return send(t.dataset.say);
     if (t.dataset.role) {
       const id = t.dataset.role; setRole(id, { persist: true });
-      return feed.querySelector('.turn') && id !== 'ADMIN' ? send(`I am the ${roleOf(id).label}`) : showHello();
+      return feed.querySelector('.turn') ? send(`I am the ${roleOf(id).label}`) : showHello();
     }
     if (t.dataset.conv) { closeHistory(); return loadConversation(t.dataset.conv); }
     if (t.dataset.del) {

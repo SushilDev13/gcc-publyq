@@ -1,4 +1,4 @@
-"""Telegram sign-in: signed widget data, ward-group membership, sessions, self-chosen posts, Admin."""
+"""Telegram sign-in: signed widget data, ward-group membership, sessions, self-chosen posts, the admin flag."""
 import hashlib
 import hmac
 import time
@@ -66,26 +66,25 @@ def test_only_ward_group_members_get_in(telegram):
     assert sign_in(widget()).last.status_code == 403
 
 
-def test_people_pick_their_own_post_but_not_admin(telegram):
+def test_people_pick_their_own_post(telegram):
     c = sign_in(widget())
     assert c.post('/api/auth/role', json={'role_id': 'SI-D173'}).json()['role_id'] == 'SI-D173'
-    assert c.post('/api/auth/role', json={'role_id': 'ADMIN'}).status_code == 403
-    assert all(r['id'] != 'ADMIN' for r in c.get('/api/roles').json()['roles'])
-    r = c.post('/api/agent/turn', json={'text': "what's urgent", 'session_id': 'test-auth-1', 'role_id': 'ADMIN'})
-    assert r.status_code == 403
+    assert c.get('/api/auth/me').json()['role_id'] == 'SI-D173'
+    assert c.post('/api/auth/role', json={'role_id': 'NOPE'}).status_code == 400
 
 
-def test_group_owner_and_listed_ids_are_admin(telegram, monkeypatch):
+def test_admin_is_an_account_flag_not_a_post(telegram, monkeypatch):
+    assert all(r['id'] != 'ADMIN' for r in api.get('/api/roles').json()['roles'])
     telegram['value'] = 'creator'
     c = sign_in(widget())
     assert c.last.json()['is_admin']
-    assert c.post('/api/auth/role', json={'role_id': 'ADMIN'}).json()['role_id'] == 'ADMIN'
-    assert any(r['id'] == 'ADMIN' for r in c.get('/api/roles').json()['roles'])
+    assert c.post('/api/auth/role', json={'role_id': 'ADMIN'}).status_code == 400      # not a post for anyone
+    db.execute("UPDATE users SET role_id = 'ADMIN' WHERE id = %s", (UID,))             # picked before the change
+    assert c.get('/api/auth/me').json()['role_id'] is None                             # asked to pick a post again
     telegram['value'] = 'member'
     monkeypatch.setattr(settings, 'admin_telegram_ids', f'1, {UID + 1}')
     assert sign_in(widget(uid=UID + 1)).last.json()['is_admin']
-    demoted = sign_in(widget())                                       # owner no more, not listed
-    assert not demoted.last.json()['is_admin'] and demoted.last.json()['role_id'] is None
+    assert not sign_in(widget()).last.json()['is_admin']                             # owner no more, not listed
 
 
 def test_sign_out_ends_the_session(telegram):

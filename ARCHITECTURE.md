@@ -48,7 +48,7 @@ together, why, and what was deliberately left out.
 | `telegram.py` | Sends and logs every message (sent / failed / not configured); follows supergroup migration. |
 | `publyq.py` | Builds app.publyq.in URLs that mirror its own URL state (`state.js`). |
 | `mcp.py` | MCP server (Streamable HTTP, stateless JSON) over the same tools. |
-| `auth.py` | Telegram sign-in: verifies the Login Widget signature, requires Ward 173 group membership (re-checked daily), hashed session tokens in an HttpOnly cookie, Admin for listed ids / the group owner. |
+| `auth.py` | Telegram sign-in: verifies the Login Widget signature, requires Ward 173 group membership (re-checked daily), hashed session tokens in an HttpOnly cookie; an admin flag for listed ids / the group owner. |
 
 ## 3. One spoken turn
 
@@ -123,7 +123,6 @@ the role and context used).
 | Prompt injection via complaint text | Record text is data in tool results; the LLM has no confirm tool; Telegram HTML is escaped |
 | Who is using the app | Telegram sign-in; only members of the Ward 173 group. Session = random token in an HttpOnly, Secure, SameSite=Lax cookie; the DB stores only its SHA-256. Leaving the group signs you out within a day |
 | Someone else's conversation | A conversation belongs to the Telegram account that started it. Reading, continuing, calling into, proposing into, or confirming actions in it all check the owner; strangers get 404 |
-| Claiming Admin | The Admin post is offered and accepted only for `ADMIN_TELEGRAM_IDS` or the group's owner; checked on every turn and call |
 | Public endpoints abused | Separate bearer secrets for the ConvoAI brain, the cron job and MCP, compared in constant time; an unset secret turns its endpoint off |
 | Browser attacks | CORS only for `CORS_ORIGINS`; `X-Frame-Options: DENY`, `nosniff`, HSTS; API responses `no-store`; no OpenAPI schema served |
 | Silent delivery failures | Every Telegram attempt is logged with its status and error |
@@ -140,7 +139,7 @@ non-empty target, re-applies the read-only role and checks row counts per table.
 
 - **Snapshot data:** the records are from 15–20 Nov 2026; Publyq's views are live, so filtered counts can drift.
 - **No GCC write-back:** GCC's portal has no API for outside apps.
-- **Posts are self-chosen:** sign-in proves a person is in the ward group, not which GCC post they hold (except Admin).
+- **Posts are self-chosen:** sign-in proves a person is in the ward group, not which GCC post they hold.
 - **No per-person usage cap:** a signed-in member can run as many chats and calls as they like.
 - **The action ledger is shared ward-wide** (actions and Telegram messages are team work, visible to every role);
   chat history is not.

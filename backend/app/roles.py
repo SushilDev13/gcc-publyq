@@ -13,7 +13,6 @@ from . import db
 from . import tools as T
 
 WARD = 'WARD'
-ADMIN = 'ADMIN'      # whole ward; offered only to admins (auth.admin_ids / the group's owner)
 
 # Ward 173 roles offered in the app: field posts first, then leadership.
 ROLES = [
@@ -26,7 +25,6 @@ ROLES = [
     {'id': 'SO3-Z13', 'label': 'Sanitary Officer', 'label_ta': 'சுகாதார அலுவலர்', 'label_hi': 'स्वच्छता अधिकारी', 'dept': 'Health & sanitation', 'kind': 'leadership'},
     {'id': 'EE1-Z13', 'label': 'Executive Engineer', 'label_ta': 'செயற்பொறியாளர்', 'label_hi': 'कार्यकारी अभियंता', 'dept': 'Works (civil)', 'kind': 'leadership'},
     {'id': WARD, 'label': 'Ward leadership', 'label_ta': 'வார்டு தலைமை', 'label_hi': 'वार्ड नेतृत्व', 'dept': 'All departments', 'kind': 'ward'},
-    {'id': ADMIN, 'label': 'Admin', 'label_ta': 'நிர்வாகி', 'label_hi': 'एडमिन', 'dept': 'All departments', 'kind': 'ward'},
 ]
 BY_ID = {r['id']: r for r in ROLES}
 

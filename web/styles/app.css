@@ -247,3 +247,4 @@ body.signed-out .dock, body.signed-out .top-actions > :not(.theme-btn) { display
   border-top: 1px solid var(--line); font-size: 13px; color: var(--fg-muted); }
 .account .signout { border: 1px solid var(--line-2); border-radius: 999px; padding: 6px 14px; font-weight: 600; color: var(--fg); }
 .account .signout:hover { border-color: var(--crit); color: var(--crit); }
+.account .badge { font-size: 11px; font-weight: 600; color: var(--accent-text); background: var(--brand-tint); border-radius: 6px; padding: 1px 7px; margin-left: 4px; }
