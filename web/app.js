@@ -464,7 +464,8 @@
       return openHistory();
     }
     const act = t.dataset.act;
-    if (act === 'call') call ? endCall() : startCall();
+    if (act === 'theme') setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+    else if (act === 'call') call ? endCall() : startCall();
     else if (act === 'endcall') endCall();
     else if (act === 'new') newConversation();
     else if (act === 'history') openHistory();
@@ -475,6 +476,15 @@
   const voiceSel = $('#voice');
   if (['anisha', 'abhinav'].includes(store.get('voice'))) voiceSel.value = store.get('voice');
   voiceSel.addEventListener('change', () => store.set('voice', voiceSel.value));
+
+  // ── theme (as app.publyq.in: light by default, an explicit choice is remembered) ──
+  function setTheme(theme) {
+    document.documentElement.dataset.theme = theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#070d10' : '#f4f7f8');
+    $('.theme-btn').setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+    try { localStorage.setItem('gcc-theme', theme); } catch (_) {}
+  }
+  if (document.documentElement.dataset.theme === 'dark') $('.theme-btn').setAttribute('aria-label', 'Switch to light mode');
 
   // ── boot ───────────────────────────────────────────────────────────────
   function status(text, bad) { statusEl.textContent = text; statusEl.className = 'status' + (bad ? ' bad' : ''); }
@@ -489,6 +499,6 @@
       status(hd.ok ? `${hd.complaints} records · ${voiceStatus.llm ? 'Claude on' : 'no LLM key'} · Telegram ${voiceStatus.telegram ? 'on' : 'off'}` : 'database down', !hd.ok);
     } catch (_) { status('offline', true); }
     if (roleId && roleOf(roleId)) setRole(roleId); else roleId = null;
-    if (!(convId && await loadConversation(convId).catch(() => false))) { convId = null; roleId ? showHello() : showRolePicker(); }
+    if (!(convId && await loadConversation(convId).catch(() => false))) { convId = null; store.set('conv', null); roleId ? showHello() : showRolePicker(); }
   })();
 })();
