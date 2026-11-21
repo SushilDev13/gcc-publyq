@@ -22,7 +22,7 @@ def configured() -> bool:
 
 
 def send(body_html: str, *, action_id: int | None = None, complaint_id: str | None = None,
-         session_id: str | None = None) -> dict:
+         session_id: str | None = None, kind: str = 'action') -> dict:
     status, ref, err = 'not_configured', None, None
     if configured():
         chat_id = settings.group_chat_id
@@ -47,9 +47,9 @@ def send(body_html: str, *, action_id: int | None = None, complaint_id: str | No
     else:
         err = 'BOT_TOKEN / GROUP_CHAT_ID not set'
     row = db.execute("""INSERT INTO communications (action_id, complaint_id, channel, recipient, body, status,
-                                                    provider_ref, error, session_id)
-                        VALUES (%s,%s,'telegram',%s,%s,%s,%s,%s,%s) RETURNING id, status, error, created_at""",
-                     (action_id, complaint_id, RECIPIENT, body_html, status, ref, err, session_id))
+                                                    provider_ref, error, session_id, kind)
+                        VALUES (%s,%s,'telegram',%s,%s,%s,%s,%s,%s,%s) RETURNING id, status, error, created_at""",
+                     (action_id, complaint_id, RECIPIENT, body_html, status, ref, err, session_id, kind))
     if status != 'sent':
         log.warning('telegram %s: %s', status, err)
     return {'id': row['id'], 'status': status, 'error': err, 'recipient': RECIPIENT}

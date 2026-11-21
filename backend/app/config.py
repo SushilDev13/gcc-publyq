@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # Telegram: the only outbound channel
     bot_token: str = ''
     group_chat_id: str = ''
+    # Morning brief (Vercel Cron, 07:00 IST): language and the secret Vercel signs cron calls with
+    brief_lang: str = 'ta'
+    cron_secret: str = ''
 
     custom_llm_token: str = ''
 

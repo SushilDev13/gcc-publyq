@@ -144,3 +144,23 @@ def build(lang: str = 'ta') -> dict:
         L.append(f"<i>{esc(_t('asof', lang))} {lead['as_of'].strftime('%d-%m-%Y')}</i>")
     text = '\n'.join(L)
     return {'lang': lang, 'html': text, 'chars': len(text), 'sections': sections, 'leadership': lead}
+
+
+def sent_today() -> dict | None:
+    """The brief already delivered today (IST), if any."""
+    return db.fetchone("""SELECT id, created_at FROM communications
+                          WHERE kind = 'morning_brief' AND status = 'sent'
+                            AND (created_at AT TIME ZONE 'Asia/Kolkata')::date = (now() AT TIME ZONE 'Asia/Kolkata')::date
+                          ORDER BY id DESC LIMIT 1""")
+
+
+def send_today(lang: str | None = None, force: bool = False) -> dict:
+    """Send today's brief once. A second call the same day is a no-op unless force=True."""
+    from . import telegram
+    lang = lang or settings.brief_lang
+    done = sent_today()
+    if done and not force:
+        return {'status': 'already_sent', 'communication_id': done['id'], 'at': done['created_at'].isoformat()}
+    b = build(lang)
+    r = telegram.send(b['html'], session_id='cron-morning-brief', kind='morning_brief')
+    return {'status': r['status'], 'communication_id': r['id'], 'error': r['error'], 'lang': lang, 'chars': b['chars']}

@@ -273,3 +273,7 @@ END $$;
 
 -- Publyq's category key (e.g. 'debris'), used to deep-link into app.publyq.in
 ALTER TABLE complaints ADD COLUMN IF NOT EXISTS issue_group_id text;
+
+-- what a communication was: an action notification or the scheduled morning brief
+ALTER TABLE communications ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'action';
+CREATE INDEX IF NOT EXISTS communications_kind_idx ON communications (kind, created_at);

@@ -44,5 +44,11 @@
   ],
   "regions": [
     "iad1"
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/morning-brief",
+      "schedule": "30 1 * * *"
+    }
   ]
 }

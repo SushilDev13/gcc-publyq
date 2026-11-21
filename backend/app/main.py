@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from . import db
 from . import roles as R
-from . import voice
+from . import brief, voice
 from .agent import run_turn
 from . import tools as T
 from .config import settings
@@ -220,6 +220,23 @@ async def voice_stop(body: VoiceStopIn):
         log.warning('voice stop failed: %s', e)
         return {'ok': False, 'error': type(e).__name__}
     return {'ok': True}
+
+
+# ── morning brief (Vercel Cron: GET with Authorization: Bearer $CRON_SECRET) ──
+def _cron_auth(request: Request) -> None:
+    if not settings.cron_secret or request.headers.get('authorization', '') != f'Bearer {settings.cron_secret}':
+        raise HTTPException(401, 'unauthorized')
+
+
+@app.get('/api/cron/morning-brief')
+def morning_brief(request: Request, lang: str | None = None, dry_run: bool = False, force: bool = False):
+    _cron_auth(request)
+    if lang not in (None, 'ta', 'en'):
+        raise HTTPException(400, 'lang must be ta or en')
+    if dry_run:
+        b = brief.build(lang or settings.brief_lang)
+        return {'status': 'preview', 'lang': b['lang'], 'chars': b['chars'], 'html': b['html']}
+    return brief.send_today(lang, force)
 
 
 # ── reports ───────────────────────────────────────────────────────────────
